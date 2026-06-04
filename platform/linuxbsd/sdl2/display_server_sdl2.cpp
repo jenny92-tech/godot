@@ -8,9 +8,12 @@
 #include "core/config/project_settings.h"
 #include "main/main.h"
 
-// Full SDL2 header(SDL_Init / SDL_CreateWindow / SDL_GL_* / SDL_Event 等),只在 .cpp 包。
-// .h 只前向声明 SDL_Window/SDL_GLContext/SDL_Event,避免与 godot drivers/sdl/joypad_sdl.h
-// 的 SDL_JoystickID typedef 冲突。
+// 自己的 KMS+GBM+EGL 实现 — 完全绕开 SDL2 video driver
+#include "egl_manager_kms.h"
+#include "kms_gbm_device.h"
+
+// Full SDL2 header(SDL_Init / SDL_CreateWindow / SDL_Event 等)。
+// SDL_VIDEODRIVER=dummy 时只用于 event/joystick,不调 GL/视频功能。
 #include <SDL2/SDL.h>
 
 // ===================================================================
@@ -53,68 +56,100 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 	rendering_driver = p_rendering_driver;
 	vsync_mode = p_vsync_mode;
 	window_flags = p_flags;
-	window_size = p_resolution;
-	if (window_size == Size2i()) {
-		window_size = Size2i(1280, 720);
-	}
 
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) != 0) {
-		ERR_PRINT(vformat("SDL_Init failed: %s", SDL_GetError()));
+	// === 第一阶段:SDL2 init(仅 events / joystick / audio,SDL_VIDEODRIVER=dummy)===
+	// VIDEO subsystem 必须 init,因为 SDL2 events 走 video filter pipeline;
+	// 但用 dummy backend(launcher 设 SDL_VIDEODRIVER=dummy),SDL2 不创真窗口,不动显示。
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_JOYSTICK | SDL_INIT_AUDIO) != 0) {
+		ERR_PRINT(vformat("DisplayServerSDL2: SDL_Init failed: %s", SDL_GetError()));
 		r_error = ERR_UNAVAILABLE;
 		return;
 	}
+	const char *vd = SDL_GetCurrentVideoDriver();
+	print_verbose(vformat("DisplayServerSDL2: SDL2 video driver = %s (expect 'dummy')", vd ? vd : "(null)"));
 
-	// GL ES 3.0 context — Mali handhelds rarely have full GL 3, but always have GLES 3.x.
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
-	SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+	// 拿一个隐藏的 SDL_Window 句柄,供 events 路径引用(dummy backend 这个 window 只是占位)。
+	window = SDL_CreateWindow("godot", 0, 0,
+			p_resolution.width > 0 ? p_resolution.width : 1280,
+			p_resolution.height > 0 ? p_resolution.height : 720,
+			SDL_WINDOW_HIDDEN);
+	// SDL_CreateWindow 在 dummy backend 下不应失败,但即便失败也继续(events 还是能 poll)。
 
-	uint32_t flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN;
-	if (p_mode == WINDOW_MODE_FULLSCREEN || p_mode == WINDOW_MODE_EXCLUSIVE_FULLSCREEN) {
-		flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
-	}
-
-	window = SDL_CreateWindow("Godot", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-			window_size.width, window_size.height, flags);
-	if (!window) {
-		ERR_PRINT(vformat("SDL_CreateWindow failed: %s", SDL_GetError()));
+	// === 第二阶段:自己开 /dev/dri/card0 + GBM(完全绕开 SDL2 video)===
+	kms_dev = memnew(KMSGBMDevice());
+	if (kms_dev->initialize() != OK) {
+		ERR_PRINT("DisplayServerSDL2: KMSGBMDevice::initialize 失败 — 没法上屏");
+		memdelete(kms_dev);
+		kms_dev = nullptr;
+		if (window) {
+			SDL_DestroyWindow(window);
+			window = nullptr;
+		}
 		SDL_Quit();
 		r_error = ERR_UNAVAILABLE;
 		return;
 	}
 
-	gl_context = SDL_GL_CreateContext(window);
-	if (!gl_context) {
-		ERR_PRINT(vformat("SDL_GL_CreateContext failed: %s", SDL_GetError()));
-		SDL_DestroyWindow(window);
+	window_size = Size2i(kms_dev->get_mode_width(), kms_dev->get_mode_height());
+
+	// === 第三阶段:godot 的 EGLManager(GBM 平台)创 GL context ===
+#ifdef GLES3_ENABLED
+	egl_manager = memnew(EGLManagerKMS());
+	if (egl_manager->initialize(kms_dev->get_gbm_device()) != OK) {
+		ERR_PRINT("DisplayServerSDL2: EGLManagerKMS::initialize 失败");
+		memdelete(egl_manager);
+		egl_manager = nullptr;
+		memdelete(kms_dev);
+		kms_dev = nullptr;
+		if (window) {
+			SDL_DestroyWindow(window);
+			window = nullptr;
+		}
 		SDL_Quit();
 		r_error = ERR_UNAVAILABLE;
 		return;
 	}
 
-	SDL_GL_SetSwapInterval(vsync_mode == VSYNC_ENABLED ? 1 : 0);
+	if (egl_manager->window_create(MAIN_WINDOW_ID,
+				(void *)kms_dev->get_gbm_device(),
+				(void *)kms_dev->get_gbm_surface(),
+				kms_dev->get_mode_width(),
+				kms_dev->get_mode_height()) != OK) {
+		ERR_PRINT("DisplayServerSDL2: EGLManagerKMS::window_create 失败");
+		memdelete(egl_manager);
+		egl_manager = nullptr;
+		memdelete(kms_dev);
+		kms_dev = nullptr;
+		if (window) {
+			SDL_DestroyWindow(window);
+			window = nullptr;
+		}
+		SDL_Quit();
+		r_error = ERR_UNAVAILABLE;
+		return;
+	}
 
-	int w, h;
-	SDL_GL_GetDrawableSize(window, &w, &h);
-	window_size = Size2i(w, h);
+	egl_manager->window_make_current(MAIN_WINDOW_ID);
+	egl_manager->set_use_vsync(vsync_mode == VSYNC_ENABLED);
+#endif
 
-	window_mode = p_mode;
+	window_mode = WINDOW_MODE_FULLSCREEN; // KMSDRM 永远全屏
 	window_visible = true;
 
-	print_verbose(vformat("DisplayServerSDL2: window %dx%d, GL context OK", w, h));
+	print_verbose(vformat("DisplayServerSDL2: KMS+GBM+EGL ready, %dx%d", window_size.width, window_size.height));
 }
 
 DisplayServerSDL2::~DisplayServerSDL2() {
-	if (gl_context) {
-		SDL_GL_DeleteContext(gl_context);
-		gl_context = nullptr;
+#ifdef GLES3_ENABLED
+	if (egl_manager) {
+		egl_manager->window_destroy(MAIN_WINDOW_ID);
+		memdelete(egl_manager);
+		egl_manager = nullptr;
+	}
+#endif
+	if (kms_dev) {
+		memdelete(kms_dev);
+		kms_dev = nullptr;
 	}
 	if (window) {
 		SDL_DestroyWindow(window);
@@ -162,10 +197,8 @@ void DisplayServerSDL2::window_set_title(const String &p_title, WindowID) {
 }
 
 void DisplayServerSDL2::window_set_size(const Size2i p_size, WindowID) {
-	if (window) {
-		SDL_SetWindowSize(window, p_size.width, p_size.height);
-		window_size = p_size;
-	}
+	// KMSDRM 一次定 mode 就固定了(panel 物理分辨率),resize 实际无意义;静默忽略请求。
+	(void)p_size;
 }
 
 Size2i DisplayServerSDL2::window_get_size(WindowID) const { return window_size; }
@@ -194,7 +227,11 @@ void DisplayServerSDL2::window_set_mode(WindowMode p_mode, WindowID) {
 DisplayServer::WindowMode DisplayServerSDL2::window_get_mode(WindowID) const { return window_mode; }
 
 void DisplayServerSDL2::window_set_vsync_mode(VSyncMode p_vsync_mode, WindowID) {
-	SDL_GL_SetSwapInterval(p_vsync_mode == VSYNC_ENABLED ? 1 : 0);
+#ifdef GLES3_ENABLED
+	if (egl_manager) {
+		egl_manager->set_use_vsync(p_vsync_mode == VSYNC_ENABLED);
+	}
+#endif
 	vsync_mode = p_vsync_mode;
 }
 
@@ -226,9 +263,14 @@ bool DisplayServerSDL2::window_get_flag(WindowFlags p_flag, WindowID) const {
 bool DisplayServerSDL2::can_any_window_draw() const { return window_visible && window != nullptr; }
 
 void DisplayServerSDL2::swap_buffers() {
-	if (window) {
-		SDL_GL_SwapWindow(window);
+#ifdef GLES3_ENABLED
+	if (egl_manager) {
+		egl_manager->swap_buffers();
 	}
+	if (kms_dev) {
+		kms_dev->page_flip();
+	}
+#endif
 }
 
 void DisplayServerSDL2::show_window(WindowID) {

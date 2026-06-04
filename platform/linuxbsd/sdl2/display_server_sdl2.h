@@ -20,18 +20,22 @@
 #include "core/input/input.h"
 #include "servers/display_server.h"
 
-// 不直接 #include <SDL2/SDL.h>:它会拉 SDL_joystick.h,其 `typedef Sint32 SDL_JoystickID;`
-// 与 godot 自家 drivers/sdl/joypad_sdl.h 的 `typedef uint32_t SDL_JoystickID;` 冲突。
-// 头文件只用前向声明的 SDL 类型;具体 SDL 调用在 .cpp 里 #include <SDL2/SDL.h>。
+// 头文件只用前向声明(SDL2 / KMSGBM / EGLManager 类型),实质 include 全在 .cpp。
 struct SDL_Window;
-typedef void *SDL_GLContext;
 union SDL_Event;
+class KMSGBMDevice;
+class EGLManagerKMS;
 
 class DisplayServerSDL2 : public DisplayServer {
 	GDSOFTCLASS(DisplayServerSDL2, DisplayServer);
 
+	// SDL2 仅用于 events / joystick 输入(VIDEODRIVER=dummy,SDL2 不碰显示)。
 	SDL_Window *window = nullptr;
-	SDL_GLContext gl_context = nullptr;
+
+	// 我们自己的 KMS+GBM+EGL stack(完全绕开 SDL2 KMSDRM video driver,后者在闭源 Mali 上有 NULL bug)。
+	KMSGBMDevice *kms_dev = nullptr;
+	EGLManagerKMS *egl_manager = nullptr;
+
 	String rendering_driver;
 	Size2i window_size;
 	Point2i window_position;

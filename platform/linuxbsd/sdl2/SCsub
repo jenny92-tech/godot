@@ -5,6 +5,8 @@ Import("env")
 
 source_files = [
     "display_server_sdl2.cpp",
+    "kms_gbm_device.cpp",
+    "egl_manager_kms.cpp",
 ]
 
 objects = []

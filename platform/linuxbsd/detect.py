@@ -456,6 +456,14 @@ def configure(env: "SConsEnvironment"):
         env.Append(CPPDEFINES=["X11_ENABLED"])
 
     if env["sdl2"]:
+        # SDL2 platform 现在自己做 KMS/GBM/EGL,需要 libdrm + libgbm + libEGL + libGLESv2 链接,
+        # 以及触发 EGL_ENABLED + GLES3_ENABLED 让 EGLManager 编进来。
+        if os.system("pkg-config --exists libdrm gbm egl glesv2"):
+            print_error("libdrm/gbm/egl/glesv2 development libraries required by sdl2 display server not found. Aborting.")
+            sys.exit(255)
+        env.ParseConfig("pkg-config libdrm gbm egl glesv2 --cflags --libs")
+        env.Append(CPPDEFINES=["EGL_ENABLED", "GLES3_ENABLED"])
+
         if env["sdl2_static"]:
             # 静态链接路径:用户在外部 build SDL2 装到 /opt/sdl2-static/,这里通过 PKG_CONFIG_PATH 接它
             # 关键:--static 让 pkg-config 输出 SDL2.a 所需的全部 transitive 静态 link flag
