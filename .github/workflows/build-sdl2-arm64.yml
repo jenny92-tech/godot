@@ -79,11 +79,15 @@ jobs:
 
       - name: Build godot (linuxbsd arm64, SDL2 STATIC, no mono)
         run: |
+          # sdl=no 关掉 godot 4.5 默认开的 SDL3 输入驱动:godot bundle 的是 SDL 3.2.16,
+          # 跟我们 DisplayServer 用的 SDL2 2.30 同进程会有符号 / 结构布局冲突 → SIGBUS。
+          # 砍它 → 暂时无 joystick(POC 阶段不重要,长期方案是把 DisplayServer 改基 SDL3 对齐 godot)。
           scons \
             platform=linuxbsd \
             arch=arm64 \
             sdl2=yes \
             sdl2_static=yes \
+            sdl=no \
             x11=no \
             wayland=no \
             target=template_release \
