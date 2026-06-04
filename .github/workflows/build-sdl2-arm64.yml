@@ -1,0 +1,90 @@
+name: 🛠 Build linuxbsd SDL2 arm64 POC
+
+# POC build of godot 4.5 with the SDL2 DisplayServer module.
+# Phase 1: NO mono (validate SDL2 platform code compiles + links). Phase 2 will
+# enable module_mono_enabled. ubuntu:20.04 container keeps glibc ≤ 2.31 for
+# PortMaster handheld compatibility (TrimUI = 2.33, MiniLoong similar).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - linuxbsd-sdl2
+    paths:
+      - 'platform/linuxbsd/**'
+      - '.github/workflows/build-sdl2-arm64.yml'
+
+jobs:
+  build:
+    name: linuxbsd arm64 SDL2 template_release (glibc≤2.31)
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: ubuntu:20.04
+    steps:
+      - name: System prereqs (godot 4.5 linuxbsd build deps + SDL2)
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y \
+            ca-certificates curl git binutils \
+            python3 python3-pip \
+            build-essential pkg-config \
+            libsdl2-dev \
+            libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev \
+            libxi-dev libxrandr-dev libxinerama-dev libxcursor-dev libx11-dev \
+            libfontconfig1-dev \
+            libdbus-1-dev libspeechd-dev \
+            libxkbcommon-dev libdecor-0-dev \
+            wayland-protocols
+          ldd --version | head -1
+          gcc --version | head -1
+
+      - uses: actions/checkout@v4
+
+      - name: Python build deps
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install scons==4.7.0
+          scons --version | head -2
+
+      - name: Build (linuxbsd arm64, sdl2 only, no mono)
+        run: |
+          scons \
+            platform=linuxbsd \
+            arch=arm64 \
+            sdl2=yes \
+            x11=no \
+            wayland=no \
+            target=template_release \
+            module_mono_enabled=no \
+            production=yes \
+            debug_symbols=no \
+            -j$(nproc) 2>&1 | tee /tmp/build.log
+
+      - name: Verify binary
+        run: |
+          BIN=$(ls bin/godot.linuxbsd.template_release.arm64* 2>/dev/null | head -1)
+          if [ -z "$BIN" ]; then
+            echo "BUILD ARTIFACT NOT FOUND"
+            tail -50 /tmp/build.log
+            exit 1
+          fi
+          echo "Built: $BIN ($(ls -la $BIN | awk '{print $5}') bytes)"
+          file "$BIN"
+          echo "--- GLIBC requirement ---"
+          objdump -T "$BIN" 2>/dev/null | awk '/GLIBC_/{print $5}' | sort -u
+          echo "--- SDL2 dependency ---"
+          objdump -T "$BIN" 2>/dev/null | grep "SDL_" | head -5
+          echo "--- SDL2 dynamic library ---"
+          ldd "$BIN" 2>&1 | grep -i sdl || true
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: godot-linuxbsd-sdl2-arm64-POC
+          path: |
+            bin/godot.linuxbsd.template_release.arm64*
+            /tmp/build.log
+          if-no-files-found: warn
