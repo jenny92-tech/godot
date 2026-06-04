@@ -25,6 +25,9 @@ jobs:
         run: |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
+          # x11/wayland 用的 dev 包(libxi/libxrandr/libxkbcommon/libdecor 等)我们都禁了那两个 driver,
+          # 但 godot 的 detect.py 仍要 link 一些通用 X 库(libxext / libx11 基础)+ 系统通用 dev。
+          # 只装这次 build 真正需要的:SDL2 + GL/GLES + ALSA(我们没 audio=no 选项)+ udev/dbus(godot 默认开)。
           apt-get install -y \
             ca-certificates curl git binutils \
             python3 python3-pip \
@@ -32,11 +35,9 @@ jobs:
             libsdl2-dev \
             libgl1-mesa-dev libglu1-mesa-dev \
             libasound2-dev libpulse-dev libudev-dev \
-            libxi-dev libxrandr-dev libxinerama-dev libxcursor-dev libx11-dev \
             libfontconfig1-dev \
             libdbus-1-dev libspeechd-dev \
-            libxkbcommon-dev libdecor-0-dev \
-            wayland-protocols
+            libxkbcommon-dev
           ldd --version | head -1
           gcc --version | head -1
 
