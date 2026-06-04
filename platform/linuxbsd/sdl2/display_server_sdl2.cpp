@@ -8,8 +8,8 @@
 #include "core/config/project_settings.h"
 #include "main/main.h"
 
-// 自己的 KMS+GBM+EGL 实现 — 完全绕开 SDL2 video driver
-#include "egl_manager_kms.h"
+// 自己的 KMS+GBM+EGL 三件套 — 完全绕开 SDL2 video driver + godot EGLManager
+#include "kms_egl_context.h"
 #include "kms_gbm_device.h"
 
 // Full SDL2 header(SDL_Init / SDL_CreateWindow / SDL_Event 等)。
@@ -92,13 +92,13 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 
 	window_size = Size2i(kms_dev->get_mode_width(), kms_dev->get_mode_height());
 
-	// === 第三阶段:godot 的 EGLManager(GBM 平台)创 GL context ===
+	// === 第三阶段:自家最小化 EGL bootstrap(不走 godot EGLManager 的 probe 模式)===
 #ifdef GLES3_ENABLED
-	egl_manager = memnew(EGLManagerKMS());
-	if (egl_manager->initialize(kms_dev->get_gbm_device()) != OK) {
-		ERR_PRINT("DisplayServerSDL2: EGLManagerKMS::initialize 失败");
-		memdelete(egl_manager);
-		egl_manager = nullptr;
+	egl_ctx = memnew(KMSEGLContext());
+	if (egl_ctx->initialize((void *)kms_dev->get_gbm_device(), (void *)kms_dev->get_gbm_surface()) != OK) {
+		ERR_PRINT("DisplayServerSDL2: KMSEGLContext::initialize 失败");
+		memdelete(egl_ctx);
+		egl_ctx = nullptr;
 		memdelete(kms_dev);
 		kms_dev = nullptr;
 		if (window) {
@@ -110,27 +110,7 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 		return;
 	}
 
-	if (egl_manager->window_create(MAIN_WINDOW_ID,
-				(void *)kms_dev->get_gbm_device(),
-				(void *)kms_dev->get_gbm_surface(),
-				kms_dev->get_mode_width(),
-				kms_dev->get_mode_height()) != OK) {
-		ERR_PRINT("DisplayServerSDL2: EGLManagerKMS::window_create 失败");
-		memdelete(egl_manager);
-		egl_manager = nullptr;
-		memdelete(kms_dev);
-		kms_dev = nullptr;
-		if (window) {
-			SDL_DestroyWindow(window);
-			window = nullptr;
-		}
-		SDL_Quit();
-		r_error = ERR_UNAVAILABLE;
-		return;
-	}
-
-	egl_manager->window_make_current(MAIN_WINDOW_ID);
-	egl_manager->set_use_vsync(vsync_mode == VSYNC_ENABLED);
+	egl_ctx->set_vsync(vsync_mode == VSYNC_ENABLED);
 #endif
 
 	window_mode = WINDOW_MODE_FULLSCREEN; // KMSDRM 永远全屏
@@ -141,10 +121,9 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 
 DisplayServerSDL2::~DisplayServerSDL2() {
 #ifdef GLES3_ENABLED
-	if (egl_manager) {
-		egl_manager->window_destroy(MAIN_WINDOW_ID);
-		memdelete(egl_manager);
-		egl_manager = nullptr;
+	if (egl_ctx) {
+		memdelete(egl_ctx);
+		egl_ctx = nullptr;
 	}
 #endif
 	if (kms_dev) {
@@ -228,8 +207,8 @@ DisplayServer::WindowMode DisplayServerSDL2::window_get_mode(WindowID) const { r
 
 void DisplayServerSDL2::window_set_vsync_mode(VSyncMode p_vsync_mode, WindowID) {
 #ifdef GLES3_ENABLED
-	if (egl_manager) {
-		egl_manager->set_use_vsync(p_vsync_mode == VSYNC_ENABLED);
+	if (egl_ctx) {
+		egl_ctx->set_vsync(p_vsync_mode == VSYNC_ENABLED);
 	}
 #endif
 	vsync_mode = p_vsync_mode;
@@ -264,8 +243,8 @@ bool DisplayServerSDL2::can_any_window_draw() const { return window_visible && w
 
 void DisplayServerSDL2::swap_buffers() {
 #ifdef GLES3_ENABLED
-	if (egl_manager) {
-		egl_manager->swap_buffers();
+	if (egl_ctx) {
+		egl_ctx->swap_buffers();
 	}
 	if (kms_dev) {
 		kms_dev->page_flip();

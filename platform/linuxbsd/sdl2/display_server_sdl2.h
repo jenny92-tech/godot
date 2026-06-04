@@ -20,11 +20,11 @@
 #include "core/input/input.h"
 #include "servers/display_server.h"
 
-// 头文件只用前向声明(SDL2 / KMSGBM / EGLManager 类型),实质 include 全在 .cpp。
+// 头文件只用前向声明,实质 include 全在 .cpp。
 struct SDL_Window;
 union SDL_Event;
 class KMSGBMDevice;
-class EGLManagerKMS;
+class KMSEGLContext;
 
 class DisplayServerSDL2 : public DisplayServer {
 	GDSOFTCLASS(DisplayServerSDL2, DisplayServer);
@@ -32,9 +32,12 @@ class DisplayServerSDL2 : public DisplayServer {
 	// SDL2 仅用于 events / joystick 输入(VIDEODRIVER=dummy,SDL2 不碰显示)。
 	SDL_Window *window = nullptr;
 
-	// 我们自己的 KMS+GBM+EGL stack(完全绕开 SDL2 KMSDRM video driver,后者在闭源 Mali 上有 NULL bug)。
+	// 我们自己的 KMS+GBM+EGL 三件套:
+	// - KMSGBMDevice  自己开 /dev/dri/card0 + gbm 设备/表面
+	// - KMSEGLContext 自己最小化 EGL init,跳过 godot EGLManager 的 probe 模式
+	//   (那套模式给闭源 Mali 多 2 倍接触面,我们这里走 FRT 4 直 libEGL 套路)
 	KMSGBMDevice *kms_dev = nullptr;
-	EGLManagerKMS *egl_manager = nullptr;
+	KMSEGLContext *egl_ctx = nullptr;
 
 	String rendering_driver;
 	Size2i window_size;
