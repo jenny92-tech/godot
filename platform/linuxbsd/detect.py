@@ -48,6 +48,7 @@ def get_opts():
         BoolVariable("udev", "Use udev for gamepad connection callbacks", True),
         BoolVariable("x11", "Enable X11 display", True),
         BoolVariable("wayland", "Enable Wayland display", True),
+        BoolVariable("sdl2", "Enable SDL2 display (KMSDRM via SDL_VIDEODRIVER=kmsdrm; for embedded handhelds)", False),
         BoolVariable("libdecor", "Enable libdecor support", True),
         BoolVariable("touch", "Enable touch events", True),
         BoolVariable("execinfo", "Use libexecinfo on systems where glibc is not available", False),
@@ -452,6 +453,17 @@ def configure(env: "SConsEnvironment"):
                 sys.exit(255)
             env.ParseConfig("pkg-config xi --cflags --libs")
         env.Append(CPPDEFINES=["X11_ENABLED"])
+
+    if env["sdl2"]:
+        if not env["use_sowrap"]:
+            if os.system("pkg-config --exists sdl2"):
+                print_error("SDL2 development libraries required by sdl2 display server not found. Aborting.")
+                sys.exit(255)
+            env.ParseConfig("pkg-config sdl2 --cflags --libs")
+        else:
+            # When use_sowrap, link SDL2 directly (no dlsym wrap for SDL — the runtime always provides it).
+            env.Append(LIBS=["SDL2"])
+        env.Append(CPPDEFINES=["SDL2_ENABLED"])
 
     if env["wayland"]:
         if not env["use_sowrap"]:
