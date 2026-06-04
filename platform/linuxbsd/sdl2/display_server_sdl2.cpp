@@ -225,10 +225,6 @@ bool DisplayServerSDL2::window_get_flag(WindowFlags p_flag, WindowID) const {
 
 bool DisplayServerSDL2::can_any_window_draw() const { return window_visible && window != nullptr; }
 
-}
-
-}
-
 void DisplayServerSDL2::swap_buffers() {
 	if (window) {
 		SDL_GL_SwapWindow(window);
