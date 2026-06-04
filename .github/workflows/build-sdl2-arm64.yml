@@ -1,9 +1,10 @@
 name: 🛠 Build linuxbsd SDL2 arm64 POC
 
-# POC build of godot 4.5 with the SDL2 DisplayServer module.
-# Phase 1: NO mono (validate SDL2 platform code compiles + links). Phase 2 will
-# enable module_mono_enabled. ubuntu:20.04 container keeps glibc ≤ 2.31 for
-# PortMaster handheld compatibility (TrimUI = 2.33, MiniLoong similar).
+# POC build of godot 4.5 with the SDL2 DisplayServer + self-KMS/GBM/EGL.
+# SDL2 is now only used for events/joystick (VIDEODRIVER=dummy at runtime),
+# so the system libSDL2 2.0.10+ works fine — no more SDL2-from-source step.
+# ubuntu:20.04 container keeps glibc ≤ 2.31 for PortMaster handheld compat
+# (TrimUI = 2.33, MiniLoong similar).
 
 on:
   workflow_dispatch:
@@ -21,53 +22,22 @@ jobs:
     container:
       image: ubuntu:20.04
     steps:
-      - name: System prereqs (godot deps + SDL2 build deps)
+      - name: System prereqs
         run: |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
-          # 装 godot 4.5 linuxbsd 编译需要的库,以及 SDL2 自身从源码编需要的依赖
-          # (libdrm/libgbm/wayland-protocols/libudev/...:SDL2 KMSDRM + wayland backend 需要)
           apt-get install -y \
             ca-certificates curl git binutils \
-            python3 python3-pip cmake autoconf automake libtool \
+            python3 python3-pip \
             build-essential pkg-config \
+            libsdl2-dev \
             libgl1-mesa-dev libglu1-mesa-dev libgles2-mesa-dev \
             libegl1-mesa-dev libgbm-dev libdrm-dev \
-            libwayland-dev wayland-protocols libxkbcommon-dev \
             libasound2-dev libpulse-dev libudev-dev \
             libfontconfig1-dev libdbus-1-dev libspeechd-dev \
-            libinput-dev
+            libxkbcommon-dev
           ldd --version | head -1
           gcc --version | head -1
-
-      - name: Build SDL2 2.30 LTS from source (static)
-        run: |
-          # 2.30.x = SDL2 最后 LTS,有完整 KMSDRM hint(SDL_KMSDRM_REQUIRE_DRM_MASTER 等),
-          # 修了 ubuntu 20.04 自带 2.0.10 在 Mali libmali 上的 KMSDRM NULL crash。
-          # configure 时:
-          # - --disable-shared --enable-static:只输出 .a
-          # - --enable-video-kmsdrm --enable-video-wayland:两个 backend 都进 binary
-          # - --enable-video-dummy --enable-video-offscreen:diagnostic backend
-          # - --disable-{video-x11,opengl,esd,arts,nas}:不需要的关掉,减体积
-          mkdir -p /tmp/SDLsrc && cd /tmp/SDLsrc
-          git clone --depth 1 --branch release-2.30.10 https://github.com/libsdl-org/SDL.git .
-          mkdir -p build && cd build
-          ../configure --prefix=/opt/sdl2-static \
-            --disable-shared --enable-static \
-            --enable-video-kmsdrm --enable-video-wayland \
-            --enable-video-dummy --enable-video-offscreen \
-            --disable-video-x11 \
-            --enable-video-opengl --enable-video-opengles --enable-video-opengles2 \
-            --enable-libudev --enable-dbus --enable-ibus \
-            --enable-alsa --enable-pulseaudio \
-            --disable-esd --disable-arts --disable-nas \
-            --disable-jack --disable-sndio \
-            CFLAGS="-O2 -fPIC -fvisibility=hidden"
-          make -j$(nproc) 2>&1 | tail -20
-          make install
-          ls -la /opt/sdl2-static/lib/libSDL2.a
-          echo "--- pkg-config sanity ---"
-          PKG_CONFIG_PATH=/opt/sdl2-static/lib/pkgconfig pkg-config --static sdl2 --libs
 
       - uses: actions/checkout@v4
 
@@ -77,16 +47,15 @@ jobs:
           python3 -m pip install scons==4.7.0
           scons --version | head -2
 
-      - name: Build godot (linuxbsd arm64, SDL2 STATIC, no mono)
+      - name: Build godot (linuxbsd arm64, SDL2 dynamic, self-KMS, no mono)
         run: |
-          # sdl=no 关掉 godot 4.5 默认开的 SDL3 输入驱动:godot bundle 的是 SDL 3.2.16,
-          # 跟我们 DisplayServer 用的 SDL2 2.30 同进程会有符号 / 结构布局冲突 → SIGBUS。
-          # 砍它 → 暂时无 joystick(POC 阶段不重要,长期方案是把 DisplayServer 改基 SDL3 对齐 godot)。
+          # sdl=no:关 godot 自家 SDL3 输入(避免 SDL2/SDL3 同进程冲突)
+          # sdl2=yes:开我们的 DisplayServerSDL2(自己 KMS/GBM/EGL,不靠 SDL2 video)
+          # x11=no wayland=no:不要 godot 自家 X11/Wayland 平台(libmali 不支持 X11)
           scons \
             platform=linuxbsd \
             arch=arm64 \
             sdl2=yes \
-            sdl2_static=yes \
             sdl=no \
             x11=no \
             wayland=no \
@@ -108,12 +77,8 @@ jobs:
           file "$BIN"
           echo "--- GLIBC requirement ---"
           objdump -T "$BIN" 2>/dev/null | awk '/GLIBC_/{print $5}' | sort -u
-          echo "--- SDL2 symbols (静态链应该 SDL_* 内嵌为本地符号,not undefined)---"
-          objdump -T "$BIN" 2>/dev/null | grep "SDL_" | head -5 || echo "(no undef SDL_ refs = static link confirmed)"
-          echo "--- ldd 不应再有 libSDL2(静态链已嵌入)---"
-          ldd "$BIN" 2>&1 | grep -i sdl && echo "WARNING: dynamic libSDL2 still linked" || echo "OK: no libSDL2 dynamic dep"
-          echo "--- 应仍依赖的:libdrm libgbm libwayland libudev libmali(SDL2 内部 dlopen)---"
-          ldd "$BIN" 2>&1 | grep -E "drm|gbm|wayland|udev|EGL|GLES" || true
+          echo "--- 动态链应有 libSDL2 + libdrm + libgbm + libEGL/GLES NEEDED ---"
+          ldd "$BIN" 2>&1 | grep -E "SDL|drm|gbm|EGL|GLES|udev|mali" || true
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
