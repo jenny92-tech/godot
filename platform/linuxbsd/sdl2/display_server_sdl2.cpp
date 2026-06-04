@@ -220,16 +220,8 @@ bool DisplayServerSDL2::window_get_flag(WindowFlags p_flag, WindowID) const {
 
 bool DisplayServerSDL2::can_any_window_draw() const { return window_visible && window != nullptr; }
 
-void DisplayServerSDL2::release_rendering_thread() {
-	if (gl_context && window) {
-		SDL_GL_MakeCurrent(window, nullptr);
-	}
 }
 
-void DisplayServerSDL2::make_rendering_thread() {
-	if (gl_context && window) {
-		SDL_GL_MakeCurrent(window, gl_context);
-	}
 }
 
 void DisplayServerSDL2::swap_buffers() {

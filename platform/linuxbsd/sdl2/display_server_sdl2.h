@@ -20,7 +20,12 @@
 #include "core/input/input.h"
 #include "servers/display_server.h"
 
-#include <SDL2/SDL.h>
+// 不直接 #include <SDL2/SDL.h>:它会拉 SDL_joystick.h,其 `typedef Sint32 SDL_JoystickID;`
+// 与 godot 自家 drivers/sdl/joypad_sdl.h 的 `typedef uint32_t SDL_JoystickID;` 冲突。
+// 头文件只用前向声明的 SDL 类型;具体 SDL 调用在 .cpp 里 #include <SDL2/SDL.h>。
+struct SDL_Window;
+typedef void *SDL_GLContext;
+union SDL_Event;
 
 class DisplayServerSDL2 : public DisplayServer {
 	GDSOFTCLASS(DisplayServerSDL2, DisplayServer);
@@ -90,9 +95,9 @@ public:
 	virtual bool can_any_window_draw() const override;
 	virtual void process_events() override;
 	virtual void swap_buffers() override;
-	virtual void release_rendering_thread() override;
-	virtual void make_rendering_thread() override;
 	virtual void show_window(WindowID p_window) override;
+	// release_rendering_thread / make_rendering_thread:non-pure 虚函数,不强制 override;
+	// 我们也不需要管(godot 4 已经废弃多线程渲染上下文切换需求),让基类默认空实现走。
 
 	// ===== 其他 ~85 stub 方法,从 servers/display_server.h 抽出 =====
 	#include "display_server_sdl2_stubs.h"

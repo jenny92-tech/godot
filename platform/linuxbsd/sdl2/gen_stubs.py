@@ -9,7 +9,20 @@ Output: stdout — two lines per virtual:
 """
 import re, sys
 
-src = open("../../../servers/display_server.h").read()
+full = open("../../../servers/display_server.h").read()
+# 只取 class DisplayServer { ... 直到匹配的 }; 这块,排除文件后半的 AccessibilityDriver 等
+m_start = re.search(r"class DisplayServer\b[^{]*\{", full)
+if not m_start:
+    raise SystemExit("class DisplayServer 未找到")
+# 简易计括号(godot 类内嵌套深度有限,这够用)
+i = m_start.end(); depth = 1
+while i < len(full) and depth > 0:
+    c = full[i]
+    if c == "{": depth += 1
+    elif c == "}": depth -= 1
+    i += 1
+src = full[m_start.end():i-1]
+print(f"// Extracted class DisplayServer body: {len(src)} bytes", file=sys.stderr)
 
 # 手写的(在 display_server_sdl2.h 类体里直接 override 的)— 从 .gen 里排除掉避免重复
 MANUAL = {
