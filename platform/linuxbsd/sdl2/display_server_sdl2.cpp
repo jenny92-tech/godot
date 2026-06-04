@@ -8,6 +8,11 @@
 #include "core/config/project_settings.h"
 #include "main/main.h"
 
+// Full SDL2 header(SDL_Init / SDL_CreateWindow / SDL_GL_* / SDL_Event 等),只在 .cpp 包。
+// .h 只前向声明 SDL_Window/SDL_GLContext/SDL_Event,避免与 godot drivers/sdl/joypad_sdl.h
+// 的 SDL_JoystickID typedef 冲突。
+#include <SDL2/SDL.h>
+
 // ===================================================================
 // register / create
 // ===================================================================
