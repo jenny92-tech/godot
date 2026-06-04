@@ -1,10 +1,14 @@
-# SCsub for SDL2-backed DisplayServer
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
 Import("env")
 
 source_files = [
     "display_server_sdl2.cpp",
 ]
 
-env_sdl2 = env.Clone()
-env_sdl2.Append(CXXFLAGS=["-DSDL2_ENABLED"])
-env_sdl2.add_source_files(env.platform_sources, source_files)
+objects = []
+for source_file in source_files:
+    objects.append(env.Object(source_file))
+
+Return("objects")
