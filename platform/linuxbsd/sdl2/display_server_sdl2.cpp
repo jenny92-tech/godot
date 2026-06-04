@@ -298,6 +298,6 @@ void DisplayServerSDL2::process_events() {
 // ===================================================================
 // the 92 stubs(全 return 默认值,够 godot 不 crash)
 // ===================================================================
-#include "display_server_sdl2_stubs.gen.cpp"
+#include "display_server_sdl2_stubs.cpp"
 
 #endif // SDL2_ENABLED

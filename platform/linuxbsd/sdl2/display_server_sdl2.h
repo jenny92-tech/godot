@@ -95,7 +95,7 @@ public:
 	virtual void show_window(WindowID p_window) override;
 
 	// ===== 其他 ~85 stub 方法,从 servers/display_server.h 抽出 =====
-	#include "display_server_sdl2_stubs.gen.h"
+	#include "display_server_sdl2_stubs.h"
 };
 
 #endif // SDL2_ENABLED
