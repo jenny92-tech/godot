@@ -8,6 +8,12 @@
 #ifdef EGL_ENABLED
 #ifdef GLES3_ENABLED
 
+// godot 用 thirdparty/glad/glad/egl.h 提供 EGL 绑定,glad 这版没带 GBM_KHR 常量
+// (只有 X11/WAYLAND)。Khronos 注册表给死的 token,手动补:
+#ifndef EGL_PLATFORM_GBM_KHR
+#define EGL_PLATFORM_GBM_KHR 0x31D7
+#endif
+
 const char *EGLManagerKMS::_get_platform_extension_name() const {
 	return "EGL_KHR_platform_gbm";
 }
