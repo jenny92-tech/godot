@@ -49,6 +49,7 @@ def get_opts():
         BoolVariable("x11", "Enable X11 display", True),
         BoolVariable("wayland", "Enable Wayland display", True),
         BoolVariable("sdl2", "Enable SDL2 display (KMSDRM via SDL_VIDEODRIVER=kmsdrm; for embedded handhelds)", False),
+        BoolVariable("sdl2_static", "Statically link SDL2 (uses /opt/sdl2-static via PKG_CONFIG_PATH; avoids system libSDL2 version skew on old distros)", False),
         BoolVariable("libdecor", "Enable libdecor support", True),
         BoolVariable("touch", "Enable touch events", True),
         BoolVariable("execinfo", "Use libexecinfo on systems where glibc is not available", False),
@@ -455,7 +456,18 @@ def configure(env: "SConsEnvironment"):
         env.Append(CPPDEFINES=["X11_ENABLED"])
 
     if env["sdl2"]:
-        if not env["use_sowrap"]:
+        if env["sdl2_static"]:
+            # 静态链接路径:用户在外部 build SDL2 装到 /opt/sdl2-static/,这里通过 PKG_CONFIG_PATH 接它
+            # 关键:--static 让 pkg-config 输出 SDL2.a 所需的全部 transitive 静态 link flag
+            # (-lpthread -ldl -lm 等,以及 libdrm/libgbm/libwayland 等只 dlopen 的不放进来)
+            sdl2_prefix = os.environ.get("SDL2_STATIC_PREFIX", "/opt/sdl2-static")
+            pc_cmd = f"PKG_CONFIG_PATH={sdl2_prefix}/lib/pkgconfig pkg-config --static sdl2 --cflags --libs"
+            if os.system(f"PKG_CONFIG_PATH={sdl2_prefix}/lib/pkgconfig pkg-config --exists sdl2"):
+                print_error(f"SDL2 static install not found at {sdl2_prefix}. Build SDL2 with --enable-static --prefix={sdl2_prefix} first, or set $SDL2_STATIC_PREFIX. Aborting.")
+                sys.exit(255)
+            env.ParseConfig(pc_cmd)
+            print_info(f"SDL2: static link from {sdl2_prefix}")
+        elif not env["use_sowrap"]:
             if os.system("pkg-config --exists sdl2"):
                 print_error("SDL2 development libraries required by sdl2 display server not found. Aborting.")
                 sys.exit(255)
