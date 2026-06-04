@@ -11,6 +11,7 @@ source_files = [
     "display_server_sdl2.cpp",
     "kms_gbm_device.cpp",
     "kms_egl_context.cpp",
+    "kms_config.cpp",
 ]
 
 objects = []

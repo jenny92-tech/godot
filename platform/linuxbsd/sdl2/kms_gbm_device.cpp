@@ -5,6 +5,7 @@
 #ifdef SDL2_ENABLED
 
 #include "kms_gbm_device.h"
+#include "kms_config.h"
 
 #include "core/error/error_macros.h"
 #include "core/os/memory.h"          // memalloc / memfree
@@ -141,33 +142,54 @@ uint32_t KMSGBMDevice::_create_drm_fb(gbm_bo *p_bo) {
 // initialize:open card + 找 connector/CRTC/mode + 创 gbm_device + gbm_surface
 // ===================================================================
 Error KMSGBMDevice::initialize(const String &p_device_path) {
-	CharString path_utf8 = p_device_path.utf8();
+	String dev = KMSConfig::drm_device.is_empty() ? p_device_path : KMSConfig::drm_device;
+	poc_diag_fmt("KMSGBM: open(%s)", dev.utf8().get_data());
+
+	CharString path_utf8 = dev.utf8();
 	drm_fd = open(path_utf8.get_data(), O_RDWR | O_CLOEXEC);
-	ERR_FAIL_COND_V_MSG(drm_fd < 0, ERR_CANT_OPEN, vformat("KMSGBMDevice: open(%s) failed: %d", p_device_path, errno));
+	ERR_FAIL_COND_V_MSG(drm_fd < 0, ERR_CANT_OPEN, vformat("KMSGBMDevice: open(%s) failed: %d", dev, errno));
+	poc_diag_fmt("KMSGBM: open OK, fd=%d", drm_fd);
 
-	// 试着拿 DRM master(如果 MainUI 已经 dropMaster)。失败不致命:很多 PortMaster 设备
-	// 启动 port 时 MainUI 已经放手,但有的 setup 不放;我们 page-flip 不强制需要 master。
-	drmSetMaster(drm_fd);
+	if (KMSConfig::drm_master) {
+		poc_diag("KMSGBM: drmSetMaster()");
+		int r = drmSetMaster(drm_fd);
+		poc_diag_fmt("KMSGBM: drmSetMaster returned %d (errno=%d)", r, r ? errno : 0);
+	} else {
+		poc_diag("KMSGBM: skip drmSetMaster (POC_DRM_MASTER=0)");
+	}
 
+	poc_diag("KMSGBM: drmModeGetResources()");
 	drmModeRes *resources = drmModeGetResources(drm_fd);
 	ERR_FAIL_NULL_V_MSG(resources, ERR_UNAVAILABLE, "KMSGBMDevice: drmModeGetResources 失败,可能不是 KMS 设备");
 
+	poc_diag("KMSGBM: _pick_connector_crtc_mode()");
 	Error err = _pick_connector_crtc_mode(resources);
 	drmModeFreeResources(resources);
 	if (err != OK) {
+		poc_diag("KMSGBM: pick failed");
 		return err;
 	}
+	poc_diag_fmt("KMSGBM: picked connector=%u crtc=%u mode=%ux%u@%u",
+			connector_id, crtc_id, mode_width, mode_height, mode_refresh);
 
-	// GBM device + surface(直 scanout 用 XRGB8888 + SCANOUT|RENDERING usage)
+	poc_diag("KMSGBM: gbm_create_device()");
 	gbm_dev = gbm_create_device(drm_fd);
 	ERR_FAIL_NULL_V_MSG(gbm_dev, ERR_UNAVAILABLE, "KMSGBMDevice: gbm_create_device 失败");
+	poc_diag_fmt("KMSGBM: gbm_dev=%p", (void *)gbm_dev);
 
-	gbm_surf = gbm_surface_create(gbm_dev, mode_width, mode_height, GBM_FORMAT_XRGB8888,
-			GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+	uint32_t usage = GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING;
+	if (KMSConfig::gbm_use_linear) {
+		usage |= GBM_BO_USE_LINEAR;
+	}
+	poc_diag_fmt("KMSGBM: gbm_surface_create(%ux%u format=0x%x usage=0x%x)",
+			mode_width, mode_height, KMSConfig::gbm_format, usage);
+	gbm_surf = gbm_surface_create(gbm_dev, mode_width, mode_height,
+			KMSConfig::gbm_format, usage);
 	ERR_FAIL_NULL_V_MSG(gbm_surf, ERR_UNAVAILABLE,
-			vformat("KMSGBMDevice: gbm_surface_create(%dx%d XRGB8888) 失败", mode_width, mode_height));
+			vformat("KMSGBMDevice: gbm_surface_create(%dx%d fmt=0x%x) 失败", mode_width, mode_height, KMSConfig::gbm_format));
+	poc_diag_fmt("KMSGBM: gbm_surf=%p", (void *)gbm_surf);
 
-	print_verbose(vformat("KMSGBMDevice: GBM surface %dx%d XRGB8888 OK", mode_width, mode_height));
+	print_verbose(vformat("KMSGBMDevice: GBM surface %dx%d OK", mode_width, mode_height));
 	return OK;
 }
 
@@ -186,11 +208,13 @@ static void _page_flip_handler(int /*fd*/, unsigned int /*sequence*/, unsigned i
 }
 
 Error KMSGBMDevice::page_flip() {
+	if (KMSConfig::skip_page_flip) {
+		return OK; // launcher 设了 POC_SKIP_PAGE_FLIP,只测渲染不上屏
+	}
 	ERR_FAIL_COND_V(gbm_surf == nullptr, ERR_UNCONFIGURED);
 
-	// 拿当前 front buffer(eglSwapBuffers 让它变成 front)
 	gbm_bo *next_bo = gbm_surface_lock_front_buffer(gbm_surf);
-	ERR_FAIL_NULL_V_MSG(next_bo, ERR_CANT_ACQUIRE_RESOURCE, "KMSGBMDevice: gbm_surface_lock_front_buffer 返 NULL(可能 SwapBuffers 没成功)");
+	ERR_FAIL_NULL_V_MSG(next_bo, ERR_CANT_ACQUIRE_RESOURCE, "KMSGBMDevice: gbm_surface_lock_front_buffer 返 NULL");
 
 	uint32_t fb_id = _create_drm_fb(next_bo);
 	if (!fb_id) {
@@ -198,13 +222,11 @@ Error KMSGBMDevice::page_flip() {
 		return ERR_CANT_CREATE;
 	}
 
-	// 第一帧:drmModeSetCrtc(没 SetCrtc,后续 PageFlip 都 -EBUSY)
 	if (!mode_set) {
 		int ret = drmModeSetCrtc(drm_fd, crtc_id, fb_id, 0, 0, &connector_id, 1, mode);
 		ERR_FAIL_COND_V_MSG(ret, ERR_CANT_CREATE, vformat("KMSGBMDevice: 首次 drmModeSetCrtc 失败: %d", ret));
 		mode_set = true;
 	} else {
-		// 后续帧:page flip + 等 vblank
 		bool waiting = true;
 		PageFlipUserData pf{ &waiting };
 		int ret = drmModePageFlip(drm_fd, crtc_id, fb_id, DRM_MODE_PAGE_FLIP_EVENT, &pf);
@@ -213,23 +235,22 @@ Error KMSGBMDevice::page_flip() {
 			ERR_FAIL_V_MSG(ERR_CANT_CREATE, vformat("KMSGBMDevice: drmModePageFlip 失败: %d", ret));
 		}
 
-		// 阻塞等 vblank/page-flip 完成(单一进程,不并发,不复杂)
-		struct pollfd pfd = { drm_fd, POLLIN, 0 };
-		drmEventContext evctx = {};
-		evctx.version = 2;
-		evctx.page_flip_handler = _page_flip_handler;
-		while (waiting) {
-			int pret = poll(&pfd, 1, 1000);
-			if (pret <= 0) {
-				// 超时或错误:不死循环,放弃这一帧
-				WARN_PRINT("KMSGBMDevice: page-flip poll 超时,帧丢");
-				break;
+		if (!KMSConfig::no_vblank_wait) {
+			struct pollfd pfd = { drm_fd, POLLIN, 0 };
+			drmEventContext evctx = {};
+			evctx.version = 2;
+			evctx.page_flip_handler = _page_flip_handler;
+			while (waiting) {
+				int pret = poll(&pfd, 1, 1000);
+				if (pret <= 0) {
+					WARN_PRINT("KMSGBMDevice: page-flip poll 超时,帧丢");
+					break;
+				}
+				drmHandleEvent(drm_fd, &evctx);
 			}
-			drmHandleEvent(drm_fd, &evctx);
 		}
 	}
 
-	// 把上一次 front buffer 还给 gbm(它会进 surface 的复用池)
 	if (current_front_bo) {
 		gbm_surface_release_buffer(gbm_surf, current_front_bo);
 	}

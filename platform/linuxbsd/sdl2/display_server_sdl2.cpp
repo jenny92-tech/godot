@@ -9,6 +9,7 @@
 #include "main/main.h"
 
 // 自己的 KMS+GBM+EGL 三件套 — 完全绕开 SDL2 video driver + godot EGLManager
+#include "kms_config.h"
 #include "kms_egl_context.h"
 #include "kms_gbm_device.h"
 
@@ -57,28 +58,45 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 	vsync_mode = p_vsync_mode;
 	window_flags = p_flags;
 
-	// === 第一阶段:SDL2 init(仅 events / joystick / audio,SDL_VIDEODRIVER=dummy)===
-	// VIDEO subsystem 必须 init,因为 SDL2 events 走 video filter pipeline;
-	// 但用 dummy backend(launcher 设 SDL_VIDEODRIVER=dummy),SDL2 不创真窗口,不动显示。
+	// === 第零阶段:读 env config + 打 dump ===
+	KMSConfig::load_from_env();
+	KMSConfig::dump();
+	poc_diag("DSDL2: ctor entered");
+
+	// === 第一阶段:SDL2 init ===
+	poc_diag("DSDL2: SDL_Init(VIDEO|EVENTS|JOYSTICK|AUDIO)");
 	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_JOYSTICK | SDL_INIT_AUDIO) != 0) {
+		poc_diag_fmt("DSDL2: SDL_Init FAILED: %s", SDL_GetError());
 		ERR_PRINT(vformat("DisplayServerSDL2: SDL_Init failed: %s", SDL_GetError()));
 		r_error = ERR_UNAVAILABLE;
 		return;
 	}
 	const char *vd = SDL_GetCurrentVideoDriver();
-	print_verbose(vformat("DisplayServerSDL2: SDL2 video driver = %s (expect 'dummy')", vd ? vd : "(null)"));
+	poc_diag_fmt("DSDL2: SDL2 video driver = %s (expect 'dummy')", vd ? vd : "(null)");
 
-	// 拿一个隐藏的 SDL_Window 句柄,供 events 路径引用(dummy backend 这个 window 只是占位)。
+	poc_diag("DSDL2: SDL_CreateWindow(HIDDEN)");
 	window = SDL_CreateWindow("godot", 0, 0,
 			p_resolution.width > 0 ? p_resolution.width : 1280,
 			p_resolution.height > 0 ? p_resolution.height : 720,
 			SDL_WINDOW_HIDDEN);
-	// SDL_CreateWindow 在 dummy backend 下不应失败,但即便失败也继续(events 还是能 poll)。
+	poc_diag_fmt("DSDL2: SDL_Window=%p", (void *)window);
 
-	// === 第二阶段:自己开 /dev/dri/card0 + GBM(完全绕开 SDL2 video)===
+	// === SKIP_KMS:不开 KMS/EGL,只 SDL2 dummy,测 godot 本身在 dummy-only 下崩不崩 ===
+	if (KMSConfig::skip_kms) {
+		poc_diag("DSDL2: POC_SKIP_KMS=1, 不开 KMS+GBM+EGL — godot 在无 GL context 下大概率 crash,只为 bisect");
+		window_size = p_resolution.width > 0 ? p_resolution : Size2i(1280, 720);
+		window_mode = WINDOW_MODE_FULLSCREEN;
+		window_visible = true;
+		return;
+	}
+
+	// === 第二阶段:自己开 /dev/dri/card0 + GBM ===
+	poc_diag("DSDL2: memnew(KMSGBMDevice)");
 	kms_dev = memnew(KMSGBMDevice());
+	poc_diag("DSDL2: kms_dev->initialize()");
 	if (kms_dev->initialize() != OK) {
-		ERR_PRINT("DisplayServerSDL2: KMSGBMDevice::initialize 失败 — 没法上屏");
+		poc_diag("DSDL2: KMSGBMDevice::initialize FAILED");
+		ERR_PRINT("DisplayServerSDL2: KMSGBMDevice::initialize 失败");
 		memdelete(kms_dev);
 		kms_dev = nullptr;
 		if (window) {
@@ -89,13 +107,18 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 		r_error = ERR_UNAVAILABLE;
 		return;
 	}
+	poc_diag("DSDL2: KMSGBMDevice ready");
 
 	window_size = Size2i(kms_dev->get_mode_width(), kms_dev->get_mode_height());
+	poc_diag_fmt("DSDL2: window_size=%dx%d", window_size.width, window_size.height);
 
-	// === 第三阶段:自家最小化 EGL bootstrap(不走 godot EGLManager 的 probe 模式)===
+	// === 第三阶段:自家最小化 EGL bootstrap ===
 #ifdef GLES3_ENABLED
+	poc_diag("DSDL2: memnew(KMSEGLContext)");
 	egl_ctx = memnew(KMSEGLContext());
+	poc_diag("DSDL2: egl_ctx->initialize()");
 	if (egl_ctx->initialize((void *)kms_dev->get_gbm_device(), (void *)kms_dev->get_gbm_surface()) != OK) {
+		poc_diag("DSDL2: KMSEGLContext::initialize FAILED");
 		ERR_PRINT("DisplayServerSDL2: KMSEGLContext::initialize 失败");
 		memdelete(egl_ctx);
 		egl_ctx = nullptr;
@@ -109,13 +132,15 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 		r_error = ERR_UNAVAILABLE;
 		return;
 	}
+	poc_diag("DSDL2: KMSEGLContext ready");
 
 	egl_ctx->set_vsync(vsync_mode == VSYNC_ENABLED);
 #endif
 
-	window_mode = WINDOW_MODE_FULLSCREEN; // KMSDRM 永远全屏
+	window_mode = WINDOW_MODE_FULLSCREEN;
 	window_visible = true;
 
+	poc_diag("DSDL2: ============== CONSTRUCTOR COMPLETE,godot 接管渲染 ==============");
 	print_verbose(vformat("DisplayServerSDL2: KMS+GBM+EGL ready, %dx%d", window_size.width, window_size.height));
 }
 
