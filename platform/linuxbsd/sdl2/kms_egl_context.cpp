@@ -13,6 +13,12 @@
 
 #include <EGL/eglext.h>
 
+// godot thirdparty/glad/glad/egl.h 用 `#define eglGetProcAddress glad_eglGetProcAddress`
+// 把所有 EGL 调用劫持成 glad 全局函数指针。这指针得先调 gladLoaderLoadEGL 才填上。
+// 不 include glad/egl.h(否则我们自己的 eglXxx 调用也被劫持成 NULL 指针 → 我们自己死);
+// 只前向声明 gladLoaderLoadEGL 拿到 link 符号即可。
+extern "C" int gladLoaderLoadEGL(EGLDisplay display);
+
 #ifndef EGL_PLATFORM_GBM_KHR
 #define EGL_PLATFORM_GBM_KHR 0x31D7
 #endif
@@ -55,6 +61,17 @@ Error KMSEGLContext::initialize(void *p_gbm_device, void *p_gbm_surface) {
 	ERR_FAIL_NULL_V(p_gbm_surface, ERR_INVALID_PARAMETER);
 	poc_diag_fmt("KMSEGL: gbm_device=%p gbm_surface=%p", p_gbm_device, p_gbm_surface);
 
+	// === Step 0: 必须先 gladLoaderLoadEGL —— godot rasterizer_gles3 + glad 用
+	// `#define eglGetProcAddress glad_eglGetProcAddress`,glad_eglGetProcAddress
+	// 是个全局函数指针,gladLoaderLoadEGL 才填它。不调 → godot 的所有 eglXxx 调用
+	// 都成 NULL 函数指针调用 → gladLoadGLES2 跑 0 次 → ERR_FAIL_MSG("Error initializing GLAD")
+	// → 构造早 return → 成员未 init → 后续 SIGSEGV。
+	poc_diag("KMSEGL: step0 gladLoaderLoadEGL(EGL_NO_DISPLAY) — 填 glad EGL 函数指针表");
+	if (!gladLoaderLoadEGL(EGL_NO_DISPLAY)) {
+		poc_diag("KMSEGL: FAIL — gladLoaderLoadEGL(NO_DISPLAY) 返 0");
+		ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "KMSEGLContext: gladLoaderLoadEGL(NO_DISPLAY) 失败");
+	}
+
 	// === Step 1: 拿 eglGetPlatformDisplayEXT (扩展函数) ===
 	poc_diag("KMSEGL: step1 eglGetProcAddress(eglGetPlatformDisplayEXT)");
 	typedef EGLDisplay (*PFNGETPDE)(EGLenum, void *, const EGLint *);
@@ -87,6 +104,13 @@ Error KMSEGLContext::initialize(void *p_gbm_device, void *p_gbm_surface) {
 		ERR_FAIL_V_MSG(ERR_UNAVAILABLE, "eglInitialize 失败");
 	}
 	poc_diag_fmt("KMSEGL: EGL %d.%d initialized", (int)major, (int)minor);
+
+	// 第二次 gladLoaderLoadEGL,这次用真 display 拿 display 相关 EGL 扩展函数指针。
+	// 对齐 godot EGLManager::initialize pattern。
+	poc_diag("KMSEGL: gladLoaderLoadEGL(display) — display 相关扩展");
+	if (!gladLoaderLoadEGL(egl_display)) {
+		poc_diag("KMSEGL: WARN — gladLoaderLoadEGL(display) 返 0,继续不死");
+	}
 
 	// === Step 4: eglBindAPI(GLES) ===
 	poc_diag("KMSEGL: step4 eglBindAPI(EGL_OPENGL_ES_API)");
