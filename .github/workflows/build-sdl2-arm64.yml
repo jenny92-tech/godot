@@ -79,16 +79,26 @@ jobs:
           python3 -m pip install scons==4.7.0
           scons --version | head -2
 
+      - name: Install X11 build deps (for the bundled x11 display driver)
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get install -y \
+            libx11-dev libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev libxss-dev
+
       - name: Build godot (linuxbsd arm64, ${{ matrix.variant }})
         run: |
-          # sdl=no avoids SDL3/SDL2 in-process conflict; x11/wayland off (no libmali platform).
+          # sdl=no avoids SDL3/SDL2 in-process conflict.
+          # x11=yes adds godot's stock X11 display driver — runs inside the
+          # QEMU portsim VM (via Xvfb), gives us a visible picture to debug,
+          # and is selectable at runtime with `--display-driver x11`. Our
+          # DSDL2 stays the default for the handheld build (sdl2=yes).
           MONO_FLAG=$([ "${{ matrix.variant }}" = "mono" ] && echo "module_mono_enabled=yes" || echo "module_mono_enabled=no")
           scons \
             platform=linuxbsd \
             arch=arm64 \
             sdl2=yes \
             sdl=no \
-            x11=no \
+            x11=yes \
             wayland=no \
             target=template_release \
             $MONO_FLAG \
