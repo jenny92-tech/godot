@@ -63,10 +63,12 @@ jobs:
       - name: Install .NET 8 SDK (mono variant only)
         if: matrix.variant == 'mono'
         run: |
-          # No .NET 8 apt package on focal; pull arm64 tarball.
-          mkdir -p /opt/dotnet
-          wget -q https://dotnetcli.azureedge.net/dotnet/Sdk/8.0.413/dotnet-sdk-8.0.413-linux-arm64.tar.gz -O /tmp/dotnet.tgz
-          tar -C /opt/dotnet -xzf /tmp/dotnet.tgz
+          # No .NET 8 apt package on focal; use Microsoft's dotnet-install.sh
+          # (pulls whatever the latest 8.0.* arm64 build is, survives Azure
+          # CDN reshuffles).
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+          chmod +x /tmp/dotnet-install.sh
+          /tmp/dotnet-install.sh --channel 8.0 --install-dir /opt/dotnet
           echo "/opt/dotnet" >> $GITHUB_PATH
           export PATH=/opt/dotnet:$PATH
           dotnet --info | head -8
