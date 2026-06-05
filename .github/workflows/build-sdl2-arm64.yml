@@ -47,7 +47,7 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y \
-            ca-certificates curl wget git binutils \
+            ca-certificates curl wget unzip git binutils \
             python3 python3-pip \
             build-essential pkg-config \
             libsdl2-dev \
