@@ -1,0 +1,21 @@
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
+
+Import("env")
+
+# 强制 link libEGL + libGLESv2(NEEDED 链而非 dlopen),让 godot gles3 driver 启动时
+# eglGetProcAddress 立刻可用,且不走 godot EGLManager 那套 probe-load-terminate 模式。
+env.Append(LIBS=["EGL", "GLESv2"])
+
+source_files = [
+    "display_server_sdl2.cpp",
+    "kms_gbm_device.cpp",
+    "kms_egl_context.cpp",
+    "kms_config.cpp",
+]
+
+objects = []
+for source_file in source_files:
+    objects.append(env.Object(source_file))
+
+Return("objects")

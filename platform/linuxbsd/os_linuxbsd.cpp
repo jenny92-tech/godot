@@ -49,6 +49,10 @@
 #include "wayland/display_server_wayland.h"
 #endif
 
+#ifdef SDL2_ENABLED
+#include "sdl2/display_server_sdl2.h"
+#endif
+
 #include "modules/modules_enabled.gen.h" // For regex.
 #ifdef MODULE_REGEX_ENABLED
 #include "modules/regex/regex.h"
@@ -1293,6 +1297,10 @@ OS_LinuxBSD::OS_LinuxBSD() {
 
 #ifdef WAYLAND_ENABLED
 	DisplayServerWayland::register_wayland_driver();
+#endif
+
+#ifdef SDL2_ENABLED
+	DisplayServerSDL2::register_sdl2_driver();
 #endif
 
 #ifdef FONTCONFIG_ENABLED
