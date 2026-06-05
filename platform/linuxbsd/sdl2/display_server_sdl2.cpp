@@ -147,12 +147,17 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 	window_visible = true;
 
 #ifdef GLES3_ENABLED
-	// 关键:注册 RasterizerGLES3 工厂(gles_over_gl=false → 选 GLES 不是桌面 GL,Mali libmali 是 GLES)。
-	// 不调这个 → RendererCompositor::_create_func 是 NULL → godot RenderingServer init 时 NULL deref 死。
-	// Wayland/X11 DSDL 都在自己构造尾部调这个,我们漏了。
-	poc_diag("DSDL2: RasterizerGLES3::make_current(false) — 注册 GLES 工厂给 godot RenderingServer");
+	// 关键:注册 RasterizerGLES3 工厂(gles_over_gl=false → GLES 不是桌面 GL)。
+	// 不调这个 → RendererCompositor::_create_func 是 NULL → RenderingServer::init 调它 NULL deref 死。
+	// Wayland/X11 DSDL 都在自己构造里按 driver 分支调,我们没 driver 分支,直接调 GLES 版本。
+	poc_diag("DSDL2: RasterizerGLES3::make_current(false) — 注册 GLES rasterizer 工厂");
 	RasterizerGLES3::make_current(false);
 #endif
+
+	// 显式 show_window(MAIN_WINDOW_ID)对齐 wayland 构造尾部行为(主窗口 visible 标记 + SDL_ShowWindow)。
+	// godot setup2 本会调,但仅条件 has_feature(SUBWINDOWS)=true 时;我们 SUBWINDOWS 返 false。
+	poc_diag("DSDL2: show_window(MAIN_WINDOW_ID)");
+	show_window(MAIN_WINDOW_ID);
 
 	poc_diag("DSDL2: ============== CONSTRUCTOR COMPLETE,godot 接管渲染 ==============");
 	print_verbose(vformat("DisplayServerSDL2: KMS+GBM+EGL ready, %dx%d", window_size.width, window_size.height));
