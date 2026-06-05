@@ -1,17 +1,7 @@
 name: 🛠 Build linuxbsd SDL2 arm64 POC
 
-# Builds the SDL2 + self-managed KMS/GBM/EGL DisplayServer binary for arm64
-# PortMaster handhelds. Two variants share the same setup/scons/verify
-# pipeline via a matrix:
-#   - base: plain template_release, no mono.
-#   - mono: module_mono_enabled=yes, plus a dotnet pass for the C# managed
-#           assemblies (for Slay the Spire 2 etc.).
-#
-# Manual trigger only — free GHA budget. Run from the Actions tab and pick
-# which variants to build via the `variants` input.
-#
-# Container ubuntu:20.04 keeps glibc <= 2.31 for PortMaster handheld
-# compatibility (TrimUI = 2.33, MiniLoong similar).
+# arm64 template_release with our SDL2 DisplayServer. Manual dispatch:
+# variants=base|mono|both. ubuntu:20.04 → glibc ≤ 2.31 for handhelds.
 
 on:
   workflow_dispatch:
@@ -73,7 +63,7 @@ jobs:
       - name: Install .NET 8 SDK (mono variant only)
         if: matrix.variant == 'mono'
         run: |
-          # ubuntu 20.04 has no official .NET 8 SDK package; pull the arm64 tarball.
+          # No .NET 8 apt package on focal; pull arm64 tarball.
           mkdir -p /opt/dotnet
           wget -q https://dotnetcli.azureedge.net/dotnet/Sdk/8.0.413/dotnet-sdk-8.0.413-linux-arm64.tar.gz -O /tmp/dotnet.tgz
           tar -C /opt/dotnet -xzf /tmp/dotnet.tgz
@@ -91,9 +81,7 @@ jobs:
 
       - name: Build godot (linuxbsd arm64, ${{ matrix.variant }})
         run: |
-          # sdl=no:disable godot's bundled SDL3 input (conflicts with our SDL2).
-          # sdl2=yes:enable our SDL2 DisplayServer (self KMS/GBM/EGL, not SDL2 video).
-          # x11=no wayland=no:libmali on these handhelds has no x11/wayland platform.
+          # sdl=no avoids SDL3/SDL2 in-process conflict; x11/wayland off (no libmali platform).
           MONO_FLAG=$([ "${{ matrix.variant }}" = "mono" ] && echo "module_mono_enabled=yes" || echo "module_mono_enabled=no")
           scons \
             platform=linuxbsd \
@@ -118,7 +106,7 @@ jobs:
 
       - name: Verify binary
         run: |
-          # The binary filename ends in .mono for mono variant, plain otherwise.
+          # Filename ends in .mono for mono variant.
           PATTERN="bin/godot.linuxbsd.template_release.arm64*"
           BIN=$(ls $PATTERN 2>/dev/null | grep -v '\.mono\.' | head -1)
           [ "${{ matrix.variant }}" = "mono" ] && BIN=$(ls $PATTERN 2>/dev/null | grep '\.mono$\|\.mono\.' | head -1)
@@ -150,7 +138,4 @@ jobs:
             bin/GodotSharp/**
             /tmp/build.log
           if-no-files-found: warn
-          # Auto-delete after 1 day. Public forks still share the 500MB free
-          # Actions storage quota account-wide; POC binaries are downloaded
-          # immediately after each build, no point keeping them around.
           retention-days: 1
