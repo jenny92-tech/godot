@@ -83,12 +83,11 @@ jobs:
         run: |
           # sdl=no avoids SDL3/SDL2 in-process conflict.
           # x11=no / wayland=no — handhelds run our DSDL2 + self KMS.
-          # disable_3d + module disables follow godot upstream "minimal
-          # template" pattern: StS2 (and any 2D card game) doesn't load
-          # 3D physics / CSG / GridMap / mesh-optimizer / lightmappers /
-          # VR / video codecs, so excluding them shaves ~50 MB resident
-          # memory and ~10 MB binary size on a 1 GB-RAM handheld where
-          # every MB matters.
+          # Module disables mirror PortMaster's own godot_4.5.mono.squashfs
+          # runtime (its binary strings list exactly these as "isn't enabled"):
+          # five legacy/desktop image formats whose absence games tolerate.
+          # Everything else (3D pipeline, CSG, navigation, …) stays enabled to
+          # match that reference build.
           MONO_FLAG=$([ "${{ matrix.variant }}" = "mono" ] && echo "module_mono_enabled=yes" || echo "module_mono_enabled=no")
           scons \
             platform=linuxbsd \
@@ -99,21 +98,11 @@ jobs:
             wayland=no \
             target=template_release \
             $MONO_FLAG \
-            disable_3d=yes \
-            module_csg_enabled=no \
-            module_gridmap_enabled=no \
-            module_jolt_physics_enabled=no \
-            module_meshoptimizer_enabled=no \
-            module_xatlas_unwrap_enabled=no \
-            module_lightmapper_rd_enabled=no \
-            module_navigation_enabled=no \
-            module_navigation_3d_enabled=no \
-            module_openxr_enabled=no \
-            module_webxr_enabled=no \
-            module_theora_enabled=no \
-            module_camera_enabled=no \
-            module_squish_enabled=no \
-            module_raycast_enabled=no \
+            module_bmp_enabled=no \
+            module_dds_enabled=no \
+            module_ktx_enabled=no \
+            module_svg_enabled=no \
+            module_tga_enabled=no \
             production=yes \
             debug_symbols=no \
             -j$(nproc) 2>&1 | tee /tmp/build.log
