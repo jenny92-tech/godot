@@ -150,5 +150,7 @@ jobs:
             bin/GodotSharp/**
             /tmp/build.log
           if-no-files-found: warn
-          # 1 天后自动删 — public fork 也共享账户 500MB 配额,POC 编完就下走没必要长留。
+          # Auto-delete after 1 day. Public forks still share the 500MB free
+          # Actions storage quota account-wide; POC binaries are downloaded
+          # immediately after each build, no point keeping them around.
           retention-days: 1
