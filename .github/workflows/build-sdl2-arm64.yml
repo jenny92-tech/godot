@@ -79,29 +79,41 @@ jobs:
           python3 -m pip install scons==4.7.0
           scons --version | head -2
 
-      - name: Install X11 build deps (for the bundled x11 display driver)
-        run: |
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get install -y \
-            libx11-dev libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev libxss-dev
-
       - name: Build godot (linuxbsd arm64, ${{ matrix.variant }})
         run: |
           # sdl=no avoids SDL3/SDL2 in-process conflict.
-          # x11=yes adds godot's stock X11 display driver — runs inside the
-          # QEMU portsim VM (via Xvfb), gives us a visible picture to debug,
-          # and is selectable at runtime with `--display-driver x11`. Our
-          # DSDL2 stays the default for the handheld build (sdl2=yes).
+          # x11=no / wayland=no — handhelds run our DSDL2 + self KMS.
+          # disable_3d + module disables follow godot upstream "minimal
+          # template" pattern: StS2 (and any 2D card game) doesn't load
+          # 3D physics / CSG / GridMap / mesh-optimizer / lightmappers /
+          # VR / video codecs, so excluding them shaves ~50 MB resident
+          # memory and ~10 MB binary size on a 1 GB-RAM handheld where
+          # every MB matters.
           MONO_FLAG=$([ "${{ matrix.variant }}" = "mono" ] && echo "module_mono_enabled=yes" || echo "module_mono_enabled=no")
           scons \
             platform=linuxbsd \
             arch=arm64 \
             sdl2=yes \
             sdl=no \
-            x11=yes \
+            x11=no \
             wayland=no \
             target=template_release \
             $MONO_FLAG \
+            disable_3d=yes \
+            module_csg_enabled=no \
+            module_gridmap_enabled=no \
+            module_jolt_physics_enabled=no \
+            module_meshoptimizer_enabled=no \
+            module_xatlas_unwrap_enabled=no \
+            module_lightmapper_rd_enabled=no \
+            module_navigation_enabled=no \
+            module_navigation_3d_enabled=no \
+            module_openxr_enabled=no \
+            module_webxr_enabled=no \
+            module_theora_enabled=no \
+            module_camera_enabled=no \
+            module_squish_enabled=no \
+            module_raycast_enabled=no \
             production=yes \
             debug_symbols=no \
             -j$(nproc) 2>&1 | tee /tmp/build.log

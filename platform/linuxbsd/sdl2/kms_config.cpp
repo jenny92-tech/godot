@@ -15,8 +15,10 @@
 
 #include <gbm.h>
 
-// 默认值定义
-bool KMSConfig::diag_enabled = true;
+// Default OFF — the POC bring-up done, production handhelds shouldn't pay
+// for the diagnostic write(2)+open()+close() per step. Re-enable with the
+// environment variable `POC_DIAG=1` when debugging KMS init regressions.
+bool KMSConfig::diag_enabled = false;
 String KMSConfig::diag_file = "";
 
 String KMSConfig::drm_device = "/dev/dri/card0";
@@ -114,7 +116,7 @@ static const char *_gbm_format_name(uint32_t f) {
 // ===================================================================
 void KMSConfig::load_from_env() {
 	// 诊断
-	diag_enabled = _env_bool("POC_DIAG", true);
+	diag_enabled = _env_bool("POC_DIAG", false);
 	diag_file = _env_str("POC_DIAG_FILE", "");
 
 	// KMS
