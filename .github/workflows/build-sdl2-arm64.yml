@@ -1,27 +1,63 @@
 name: 🛠 Build linuxbsd SDL2 arm64 POC
 
-# POC build of godot 4.5 with the SDL2 DisplayServer + self-KMS/GBM/EGL.
-# SDL2 is now only used for events/joystick (VIDEODRIVER=dummy at runtime),
-# so the system libSDL2 2.0.10+ works fine — no more SDL2-from-source step.
-# ubuntu:20.04 container keeps glibc ≤ 2.31 for PortMaster handheld compat
-# (TrimUI = 2.33, MiniLoong similar).
+# Builds the SDL2 + self-managed KMS/GBM/EGL DisplayServer binary for arm64
+# PortMaster handhelds. Two variants share the same setup/scons/verify
+# pipeline via a matrix:
+#   - base: plain template_release, no mono.
+#   - mono: module_mono_enabled=yes, plus a dotnet pass for the C# managed
+#           assemblies (for Slay the Spire 2 etc.).
+#
+# Manual trigger only — free GHA budget. Run from the Actions tab and pick
+# which variants to build via the `variants` input.
+#
+# Container ubuntu:20.04 keeps glibc <= 2.31 for PortMaster handheld
+# compatibility (TrimUI = 2.33, MiniLoong similar).
 
 on:
   workflow_dispatch:
+    inputs:
+      variants:
+        description: 'Which variants to build'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - base
+          - mono
+          - both
 
 jobs:
+  matrix:
+    name: Resolve variants
+    runs-on: ubuntu-latest
+    outputs:
+      variants: ${{ steps.set.outputs.variants }}
+    steps:
+      - id: set
+        run: |
+          case "${{ inputs.variants }}" in
+            base) echo 'variants=["base"]' >> "$GITHUB_OUTPUT" ;;
+            mono) echo 'variants=["mono"]' >> "$GITHUB_OUTPUT" ;;
+            *)    echo 'variants=["base","mono"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
   build:
-    name: linuxbsd arm64 SDL2 template_release (glibc≤2.31)
+    needs: matrix
+    name: linuxbsd arm64 ${{ matrix.variant }} (glibc≤2.31)
     runs-on: ubuntu-24.04-arm
     container:
       image: ubuntu:20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.matrix.outputs.variants) }}
     steps:
       - name: System prereqs
         run: |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y \
-            ca-certificates curl git binutils \
+            ca-certificates curl wget git binutils \
             python3 python3-pip \
             build-essential pkg-config \
             libsdl2-dev \
@@ -29,9 +65,21 @@ jobs:
             libegl1-mesa-dev libgbm-dev libdrm-dev \
             libasound2-dev libpulse-dev libudev-dev \
             libfontconfig1-dev libdbus-1-dev libspeechd-dev \
-            libxkbcommon-dev
+            libxkbcommon-dev \
+            libicu-dev
           ldd --version | head -1
           gcc --version | head -1
+
+      - name: Install .NET 8 SDK (mono variant only)
+        if: matrix.variant == 'mono'
+        run: |
+          # ubuntu 20.04 has no official .NET 8 SDK package; pull the arm64 tarball.
+          mkdir -p /opt/dotnet
+          wget -q https://dotnetcli.azureedge.net/dotnet/Sdk/8.0.413/dotnet-sdk-8.0.413-linux-arm64.tar.gz -O /tmp/dotnet.tgz
+          tar -C /opt/dotnet -xzf /tmp/dotnet.tgz
+          echo "/opt/dotnet" >> $GITHUB_PATH
+          export PATH=/opt/dotnet:$PATH
+          dotnet --info | head -8
 
       - uses: actions/checkout@v4
 
@@ -41,11 +89,12 @@ jobs:
           python3 -m pip install scons==4.7.0
           scons --version | head -2
 
-      - name: Build godot (linuxbsd arm64, SDL2 dynamic, self-KMS, no mono)
+      - name: Build godot (linuxbsd arm64, ${{ matrix.variant }})
         run: |
-          # sdl=no:关 godot 自家 SDL3 输入(避免 SDL2/SDL3 同进程冲突)
-          # sdl2=yes:开我们的 DisplayServerSDL2(自己 KMS/GBM/EGL,不靠 SDL2 video)
-          # x11=no wayland=no:不要 godot 自家 X11/Wayland 平台(libmali 不支持 X11)
+          # sdl=no:disable godot's bundled SDL3 input (conflicts with our SDL2).
+          # sdl2=yes:enable our SDL2 DisplayServer (self KMS/GBM/EGL, not SDL2 video).
+          # x11=no wayland=no:libmali on these handhelds has no x11/wayland platform.
+          MONO_FLAG=$([ "${{ matrix.variant }}" = "mono" ] && echo "module_mono_enabled=yes" || echo "module_mono_enabled=no")
           scons \
             platform=linuxbsd \
             arch=arm64 \
@@ -54,16 +103,29 @@ jobs:
             x11=no \
             wayland=no \
             target=template_release \
-            module_mono_enabled=no \
+            $MONO_FLAG \
             production=yes \
             debug_symbols=no \
             -j$(nproc) 2>&1 | tee /tmp/build.log
 
+      - name: Build C# assemblies (mono variant only)
+        if: matrix.variant == 'mono'
+        run: |
+          export PATH=/opt/dotnet:$PATH
+          ./modules/mono/build_scripts/build_assemblies.py \
+            --godot-output-dir=./bin \
+            --godot-platform=linuxbsd \
+            --push-nupkgs-local 2>&1 | tail -30
+
       - name: Verify binary
         run: |
-          BIN=$(ls bin/godot.linuxbsd.template_release.arm64* 2>/dev/null | head -1)
-          if [ -z "$BIN" ]; then
+          # The binary filename ends in .mono for mono variant, plain otherwise.
+          PATTERN="bin/godot.linuxbsd.template_release.arm64*"
+          BIN=$(ls $PATTERN 2>/dev/null | grep -v '\.mono\.' | head -1)
+          [ "${{ matrix.variant }}" = "mono" ] && BIN=$(ls $PATTERN 2>/dev/null | grep '\.mono$\|\.mono\.' | head -1)
+          if [ -z "$BIN" ] || [ ! -f "$BIN" ]; then
             echo "BUILD ARTIFACT NOT FOUND"
+            ls -la bin/ 2>/dev/null
             tail -50 /tmp/build.log
             exit 1
           fi
@@ -71,15 +133,21 @@ jobs:
           file "$BIN"
           echo "--- GLIBC requirement ---"
           objdump -T "$BIN" 2>/dev/null | awk '/GLIBC_/{print $5}' | sort -u
-          echo "--- 动态链应有 libSDL2 + libdrm + libgbm + libEGL/GLES NEEDED ---"
-          ldd "$BIN" 2>&1 | grep -E "SDL|drm|gbm|EGL|GLES|udev|mali" || true
+          echo "--- NEEDED ---"
+          ldd "$BIN" 2>&1 | grep -E "SDL|drm|gbm|EGL|GLES|udev|mali|icu" || true
+          if [ "${{ matrix.variant }}" = "mono" ]; then
+            echo "--- GodotSharp/ ---"
+            ls -la bin/GodotSharp/ 2>/dev/null | head -20
+            find bin/GodotSharp -name "*.dll" 2>/dev/null | head -10
+          fi
 
-      - name: Upload binary
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: godot-linuxbsd-sdl2-arm64-POC
+          name: godot-linuxbsd-sdl2-${{ matrix.variant }}-arm64-POC
           path: |
             bin/godot.linuxbsd.template_release.arm64*
+            bin/GodotSharp/**
             /tmp/build.log
           if-no-files-found: warn
