@@ -1,0 +1,109 @@
+name: 🛠 Build linuxbsd SDL2 arm64 POC + Mono
+
+# Same as build-sdl2-arm64.yml but with module_mono_enabled=yes for C#/.NET
+# games (e.g. Slay the Spire 2). Two-pass build:
+#   1. scons compiles C++ (also generates C# glue source files)
+#   2. modules/mono/build_scripts/build_assemblies.py uses dotnet to
+#      compile the C# managed assemblies into bin/GodotSharp/
+#
+# Manual trigger only — free GitHub Actions budget. Run from the Actions
+# tab when a new mono binary is needed.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: linuxbsd arm64 SDL2 + Mono template_release
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: ubuntu:20.04
+    steps:
+      - name: System prereqs
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y \
+            ca-certificates curl wget git binutils \
+            python3 python3-pip \
+            build-essential pkg-config \
+            libsdl2-dev \
+            libgl1-mesa-dev libglu1-mesa-dev libgles2-mesa-dev \
+            libegl1-mesa-dev libgbm-dev libdrm-dev \
+            libasound2-dev libpulse-dev libudev-dev \
+            libfontconfig1-dev libdbus-1-dev libspeechd-dev \
+            libxkbcommon-dev \
+            libicu-dev
+          ldd --version | head -1
+          gcc --version | head -1
+
+      - name: Install .NET 8 SDK (arm64)
+        run: |
+          # ubuntu 20.04 没有官方 .NET 8 SDK 包,直接下二进制 tarball 解到 /opt/dotnet。
+          mkdir -p /opt/dotnet
+          wget -q https://dotnetcli.azureedge.net/dotnet/Sdk/8.0.413/dotnet-sdk-8.0.413-linux-arm64.tar.gz -O /tmp/dotnet.tgz
+          tar -C /opt/dotnet -xzf /tmp/dotnet.tgz
+          echo "/opt/dotnet" >> $GITHUB_PATH
+          export PATH=/opt/dotnet:$PATH
+          dotnet --info | head -8
+
+      - uses: actions/checkout@v4
+
+      - name: Python build deps
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install scons==4.7.0
+          scons --version | head -2
+
+      - name: Build godot (linuxbsd arm64, SDL2, self-KMS, with mono)
+        run: |
+          # 与无 mono 版相同的 SDL2 + KMS 配置,只加 module_mono_enabled=yes
+          scons \
+            platform=linuxbsd \
+            arch=arm64 \
+            sdl2=yes \
+            sdl=no \
+            x11=no \
+            wayland=no \
+            target=template_release \
+            module_mono_enabled=yes \
+            production=yes \
+            debug_symbols=no \
+            -j$(nproc) 2>&1 | tee /tmp/build.log
+
+      - name: Build C# assemblies (dotnet)
+        run: |
+          export PATH=/opt/dotnet:$PATH
+          ./modules/mono/build_scripts/build_assemblies.py \
+            --godot-output-dir=./bin \
+            --godot-platform=linuxbsd \
+            --push-nupkgs-local 2>&1 | tail -30
+
+      - name: Verify binary + assemblies
+        run: |
+          BIN=$(ls bin/godot.linuxbsd.template_release.arm64.mono* 2>/dev/null | head -1)
+          if [ -z "$BIN" ]; then
+            echo "BUILD ARTIFACT NOT FOUND"
+            tail -50 /tmp/build.log
+            exit 1
+          fi
+          echo "Built: $BIN ($(ls -la $BIN | awk '{print $5}') bytes)"
+          file "$BIN"
+          echo "--- GLIBC requirement ---"
+          objdump -T "$BIN" 2>/dev/null | awk '/GLIBC_/{print $5}' | sort -u
+          echo "--- 动态依赖 ---"
+          ldd "$BIN" 2>&1 | grep -E "SDL|drm|gbm|EGL|GLES|udev|mali|icu" || true
+          echo "--- GodotSharp 输出 ---"
+          ls -la bin/GodotSharp/ 2>/dev/null | head -20
+          find bin/GodotSharp -name "*.dll" | head -10
+
+      - name: Upload binary + GodotSharp
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: godot-linuxbsd-sdl2-mono-arm64-POC
+          path: |
+            bin/godot.linuxbsd.template_release.arm64.mono*
+            bin/GodotSharp/**
+            /tmp/build.log
+          if-no-files-found: warn

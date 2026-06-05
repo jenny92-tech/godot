@@ -8,12 +8,6 @@ name: 🛠 Build linuxbsd SDL2 arm64 POC
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - linuxbsd-sdl2
-    paths:
-      - 'platform/linuxbsd/**'
-      - '.github/workflows/build-sdl2-arm64.yml'
 
 jobs:
   build:
