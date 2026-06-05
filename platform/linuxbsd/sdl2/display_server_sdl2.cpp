@@ -13,6 +13,12 @@
 #include "kms_egl_context.h"
 #include "kms_gbm_device.h"
 
+// 注册 rasterizer 工厂(关键!没这个 godot RendererCompositor::create() 调
+// _create_func = NULL → SIGSEGV。Wayland/X11 DSDL 都在自己构造里调这个,我们忘了)
+#ifdef GLES3_ENABLED
+#include "drivers/gles3/rasterizer_gles3.h"
+#endif
+
 // Full SDL2 header(SDL_Init / SDL_CreateWindow / SDL_Event 等)。
 // SDL_VIDEODRIVER=dummy 时只用于 event/joystick,不调 GL/视频功能。
 #include <SDL2/SDL.h>
@@ -139,6 +145,14 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 
 	window_mode = WINDOW_MODE_FULLSCREEN;
 	window_visible = true;
+
+#ifdef GLES3_ENABLED
+	// 关键:注册 RasterizerGLES3 工厂(gles_over_gl=false → 选 GLES 不是桌面 GL,Mali libmali 是 GLES)。
+	// 不调这个 → RendererCompositor::_create_func 是 NULL → godot RenderingServer init 时 NULL deref 死。
+	// Wayland/X11 DSDL 都在自己构造尾部调这个,我们漏了。
+	poc_diag("DSDL2: RasterizerGLES3::make_current(false) — 注册 GLES 工厂给 godot RenderingServer");
+	RasterizerGLES3::make_current(false);
+#endif
 
 	poc_diag("DSDL2: ============== CONSTRUCTOR COMPLETE,godot 接管渲染 ==============");
 	print_verbose(vformat("DisplayServerSDL2: KMS+GBM+EGL ready, %dx%d", window_size.width, window_size.height));
