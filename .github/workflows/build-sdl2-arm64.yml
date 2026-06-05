@@ -96,10 +96,16 @@ jobs:
             debug_symbols=no \
             -j$(nproc) 2>&1 | tee /tmp/build.log
 
-      - name: Build C# assemblies (mono variant only)
+      - name: Generate mono glue + build C# assemblies (mono variant only)
         if: matrix.variant == 'mono'
         run: |
           export PATH=/opt/dotnet:$PATH
+          # Use the official upstream editor to emit GeneratedIncludes.props
+          # (only the editor binary's bindings_generator can produce them).
+          curl -sL -o /tmp/ed.zip https://github.com/godotengine/godot/releases/download/4.5-stable/Godot_v4.5-stable_mono_linux_arm64.zip
+          unzip -q /tmp/ed.zip -d /tmp/ed
+          /tmp/ed/Godot_v4.5-stable_mono_linux.arm64/Godot_v4.5-stable_mono_linux.arm64 \
+            --headless --generate-mono-glue modules/mono/glue 2>&1 | tail -5
           ./modules/mono/build_scripts/build_assemblies.py \
             --godot-output-dir=./bin \
             --godot-platform=linuxbsd 2>&1 | tail -30
