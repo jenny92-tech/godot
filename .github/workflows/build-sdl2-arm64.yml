@@ -114,8 +114,7 @@ jobs:
           export PATH=/opt/dotnet:$PATH
           ./modules/mono/build_scripts/build_assemblies.py \
             --godot-output-dir=./bin \
-            --godot-platform=linuxbsd \
-            --push-nupkgs-local 2>&1 | tail -30
+            --godot-platform=linuxbsd 2>&1 | tail -30
 
       - name: Verify binary
         run: |
