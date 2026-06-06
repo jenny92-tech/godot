@@ -1,0 +1,105 @@
+name: 🎨 Build Bogodroid editor (texture pipeline)
+
+# The Bogodroid texture pipeline (tools/godot_pck/) needs a godot 4.5 editor
+# binary with the ASTC 8x8 / force-ASTC / project-setting-authoritative-s3tc
+# patches applied. This workflow builds those binaries so contributors don't
+# have to set up scons + MoltenVK locally — pull the artifact and point
+# tools/godot_pck/reimport.sh at it.
+#
+# Manual dispatch only; the runtime CI (build-sdl2-arm64.yml) does not need
+# this binary.
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 'Which host platforms to build the editor for'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - macos-arm64
+          - linux-x64
+          - both
+
+jobs:
+  matrix:
+    name: Resolve targets
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.set.outputs.include }}
+    steps:
+      - id: set
+        run: |
+          case "${{ inputs.targets }}" in
+            macos-arm64) cat <<'EOF' >> "$GITHUB_OUTPUT"
+          include=[{"name":"macos-arm64","runner":"macos-14","arch":"arm64","platform":"macos"}]
+          EOF
+            ;;
+            linux-x64)   cat <<'EOF' >> "$GITHUB_OUTPUT"
+          include=[{"name":"linux-x64","runner":"ubuntu-24.04","arch":"x86_64","platform":"linuxbsd"}]
+          EOF
+            ;;
+            *)           cat <<'EOF' >> "$GITHUB_OUTPUT"
+          include=[{"name":"macos-arm64","runner":"macos-14","arch":"arm64","platform":"macos"},{"name":"linux-x64","runner":"ubuntu-24.04","arch":"x86_64","platform":"linuxbsd"}]
+          EOF
+            ;;
+          esac
+
+  build:
+    needs: matrix
+    name: editor ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.matrix.outputs.include) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: scons
+        run: pip install scons
+
+      - name: macOS — MoltenVK (Vulkan still needed at runtime even with --headless)
+        if: matrix.platform == 'macos'
+        run: brew install molten-vk
+
+      - name: Linux — apt deps (godot's stock list)
+        if: matrix.platform == 'linuxbsd'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libx11-dev libxcursor-dev libxinerama-dev \
+            libgl1-mesa-dev libglu1-mesa-dev libasound2-dev libpulse-dev \
+            libudev-dev libxi-dev libxrandr-dev libwayland-dev
+
+      - name: scons cache
+        uses: actions/cache@v4
+        with:
+          path: .scons_cache
+          key: bogodroid-editor-${{ matrix.name }}-${{ hashFiles('**/SConstruct','**/SCsub','**/detect.py') }}
+          restore-keys: bogodroid-editor-${{ matrix.name }}-
+
+      - name: build editor
+        env:
+          SCONS_CACHE: .scons_cache
+        run: |
+          scons platform=${{ matrix.platform }} target=editor arch=${{ matrix.arch }} \
+                module_mono_enabled=no vulkan=no metal=yes production=yes \
+                -j$(getconf _NPROCESSORS_ONLN)
+
+      - name: verify patches landed
+        run: |
+          BIN=$(ls bin/godot.${{ matrix.platform }}.editor.${{ matrix.arch }}* 2>/dev/null | head -1)
+          [ -x "$BIN" ] || { echo "no editor binary"; exit 1; }
+          echo "binary: $BIN ($(stat -c%s "$BIN" 2>/dev/null || stat -f%z "$BIN") B)"
+          "$BIN" --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bogodroid-editor-${{ matrix.name }}
+          path: bin/godot.*.editor.*
+          if-no-files-found: error
+          retention-days: 30
