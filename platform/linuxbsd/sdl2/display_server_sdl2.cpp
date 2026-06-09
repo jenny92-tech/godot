@@ -6,7 +6,57 @@
 #include "display_server_sdl2.h"
 
 #include "core/config/project_settings.h"
+#include "core/input/input.h"
+#include "core/input/input_event.h"
+#include "core/os/keyboard.h"
 #include "main/main.h"
+
+// ── evdev (Linux raw input) ──────────────────────────────────────────
+// linux/input.h gives us struct input_event + KEY_*/BTN_*/ABS_* codes.
+// dirent + fcntl + unistd are for scanning /dev/input and reading the
+// device file descriptors. None of this is SDL2 — it's the same path the
+// kernel exposes to /any/ userspace consumer (SDL, libevdev, gptokeyb).
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <linux/input.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
+// linux/input-event-codes.h #defines kernel key codes as plain macros:
+//   #define KEY_0       11
+//   #define KEY_1       2
+//   ...
+//   #define KEY_DELETE 111
+// These collide with godot's Key enum members of the same names
+// (Key::KEY_0 … Key::KEY_9, Key::KEY_DELETE) — the preprocessor sees
+// `Key::KEY_0` after this include and substitutes `Key::11`, which is
+// invalid C++ and breaks compilation deep inside _sdl_keycode_to_godot
+// / _evdev_keycode_to_godot. We need the kernel codes at runtime to
+// match incoming struct input_event::code values, so cache them as
+// constexpr ints before undefining the macros — then both worlds work.
+static constexpr int LINUX_KEY_0      = KEY_0;
+static constexpr int LINUX_KEY_1      = KEY_1;
+static constexpr int LINUX_KEY_2      = KEY_2;
+static constexpr int LINUX_KEY_3      = KEY_3;
+static constexpr int LINUX_KEY_4      = KEY_4;
+static constexpr int LINUX_KEY_5      = KEY_5;
+static constexpr int LINUX_KEY_6      = KEY_6;
+static constexpr int LINUX_KEY_7      = KEY_7;
+static constexpr int LINUX_KEY_8      = KEY_8;
+static constexpr int LINUX_KEY_9      = KEY_9;
+static constexpr int LINUX_KEY_DELETE = KEY_DELETE;
+#undef KEY_0
+#undef KEY_1
+#undef KEY_2
+#undef KEY_3
+#undef KEY_4
+#undef KEY_5
+#undef KEY_6
+#undef KEY_7
+#undef KEY_8
+#undef KEY_9
+#undef KEY_DELETE
 
 // 自己的 KMS+GBM+EGL 三件套 — 完全绕开 SDL2 video driver + godot EGLManager
 #include "kms_config.h"
@@ -159,11 +209,27 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 	poc_diag("DSDL2: show_window(MAIN_WINDOW_ID)");
 	show_window(MAIN_WINDOW_ID);
 
+	// Register the input event dispatch thunk. This is the missing link
+	// that makes Input::parse_input_event() events actually reach the
+	// SceneTree (and from there script _input(event) callbacks). Every
+	// other godot DisplayServer does this; without it the gamepad event
+	// stream we'd just built was being parsed for state but never
+	// dispatched to the game.
+	Input::get_singleton()->set_event_dispatch_function(_dispatch_input_events);
+
+	// Open /dev/input/event* directly — SDL2 won't help us here because we
+	// disabled its video subsystem (dummy / KMSDRM conflict), which also
+	// disables its keyboard probing. _scan_evdev() opens every device,
+	// classifies as keyboard/joystick, and registers joypads with godot's
+	// Input singleton so signals fire from the first button press.
+	_scan_evdev();
+
 	poc_diag("DSDL2: ============== CONSTRUCTOR COMPLETE,godot 接管渲染 ==============");
 	print_verbose(vformat("DisplayServerSDL2: KMS+GBM+EGL ready, %dx%d", window_size.width, window_size.height));
 }
 
 DisplayServerSDL2::~DisplayServerSDL2() {
+	_close_evdev();
 #ifdef GLES3_ENABLED
 	if (egl_ctx) {
 		memdelete(egl_ctx);
@@ -314,6 +380,187 @@ void DisplayServerSDL2::_dispatch_event(const Ref<InputEvent> &p_event) {
 	}
 }
 
+// Static thunk for Input::set_event_dispatch_function. godot's Input
+// singleton calls this for every event that lands in parse_input_event
+// (keyboard, joypad, mouse, anything that goes through buffered_events
+// + flush). We route it through the live DisplayServerSDL2 singleton's
+// _dispatch_event so the input_event_callback the engine wired in via
+// DisplayServer::window_set_input_event_callback ends up firing — and
+// from there the SceneTree fans out to script _input(event) callbacks.
+//
+// X11 / Wayland / Windows / Android / Web all do this exact dance from
+// their respective constructors; we were missing the registration,
+// which is why joy_button events sat unparsed until we added the
+// explicit parse_input_event call — and even then they never reached
+// scripts because event_dispatch_function was still null.
+void DisplayServerSDL2::_dispatch_input_events(const Ref<InputEvent> &p_event) {
+	DisplayServerSDL2 *ds = static_cast<DisplayServerSDL2 *>(get_singleton());
+	if (ds) {
+		ds->_dispatch_event(p_event);
+	}
+}
+
+// Map SDL2 keycode → godot Key enum.
+//
+// This translation has to live here because godot's main DisplayServer event
+// loop only fans out keys it actually recognises; anything that returns
+// Key::NONE here gets dropped before reaching Input::parse_input_event(),
+// the game scripts, and the UI navigation actions (ui_accept / ui_up / …).
+//
+// What's covered (please keep this list in sync with the switch below):
+//   * ASCII letters a-z         (lowercase)            via range cast
+//   * Digits 0-9                                       via range cast
+//   * Control keys: Enter, Escape, Backspace, Tab, Space
+//   * Arrow keys: Up, Down, Left, Right
+//   * Modifiers: Shift, Ctrl, Alt, Meta/Super, AltGr
+//   * Navigation: Home, End, PageUp, PageDown, Insert, Delete
+//   * Function keys: F1-F12
+//   * Numpad: digits 0-9, Enter, +, -, *, /, ., =
+//   * Symbol keys: backquote/grave, minus, equal, brackets, backslash,
+//     semicolon, apostrophe, comma, period, slash
+//
+// What's NOT covered (Key::NONE → silently dropped — add here if needed):
+//   * Media keys (volume / brightness / play-pause)
+//   * Capslock / Numlock / Scrollock (we don't model lock state yet)
+//   * Print, Pause, Menu (rare on handheld)
+//   * F13+ function keys
+//   * SDL_TEXTINPUT for proper text input (handled separately when added)
+//   * Mobile/Android-specific keys (back button, etc.)
+//
+// gptokeyb default mapping sends a narrow subset (A->Enter, B->Esc, DPad
+// arrows, etc.), so this map is sufficient for the common handheld path,
+// but it's worth keeping broader-than-strictly-needed so a user with a
+// real USB keyboard can also drive in-engine text fields / debug consoles.
+static Key _sdl_keycode_to_godot(SDL_Keycode sym) {
+	// SDLK values for printable ASCII match the character codes, and
+	// godot's Key enum is laid out the same way for [0-9] and [a-z].
+	// Direct cast is cheaper than a 36-arm switch.
+	if (sym >= SDLK_a && sym <= SDLK_z) {
+		return (Key)((int)Key::A + (sym - SDLK_a));
+	}
+	if (sym >= SDLK_0 && sym <= SDLK_9) {
+		return (Key)((int)Key::KEY_0 + (sym - SDLK_0));
+	}
+
+	switch (sym) {
+		// ── Control / whitespace ──────────────────────────────────────
+		case SDLK_RETURN:    return Key::ENTER;     // gptokeyb A → Enter (ui_accept)
+		case SDLK_ESCAPE:    return Key::ESCAPE;    // gptokeyb B → Esc   (ui_cancel)
+		case SDLK_BACKSPACE: return Key::BACKSPACE;
+		case SDLK_TAB:       return Key::TAB;
+		case SDLK_SPACE:     return Key::SPACE;     // also ui_accept by default
+
+		// ── Arrow keys ────────────────────────────────────────────────
+		case SDLK_UP:        return Key::UP;        // gptokeyb D-pad ↑
+		case SDLK_DOWN:      return Key::DOWN;
+		case SDLK_LEFT:      return Key::LEFT;
+		case SDLK_RIGHT:     return Key::RIGHT;
+
+		// ── Modifiers ─────────────────────────────────────────────────
+		case SDLK_LSHIFT:
+		case SDLK_RSHIFT:    return Key::SHIFT;
+		case SDLK_LCTRL:
+		case SDLK_RCTRL:     return Key::CTRL;
+		case SDLK_LALT:      return Key::ALT;
+		case SDLK_RALT:      return Key::ALT;       // we don't separate AltGr
+		case SDLK_LGUI:
+		case SDLK_RGUI:      return Key::META;
+
+		// ── Navigation ────────────────────────────────────────────────
+		case SDLK_HOME:      return Key::HOME;
+		case SDLK_END:       return Key::END;
+		case SDLK_PAGEUP:    return Key::PAGEUP;
+		case SDLK_PAGEDOWN:  return Key::PAGEDOWN;
+		case SDLK_INSERT:    return Key::INSERT;
+		case SDLK_DELETE:    return Key::KEY_DELETE;
+
+		// ── Function keys F1-F12 ─────────────────────────────────────
+		case SDLK_F1:  return Key::F1;
+		case SDLK_F2:  return Key::F2;
+		case SDLK_F3:  return Key::F3;
+		case SDLK_F4:  return Key::F4;
+		case SDLK_F5:  return Key::F5;
+		case SDLK_F6:  return Key::F6;
+		case SDLK_F7:  return Key::F7;
+		case SDLK_F8:  return Key::F8;
+		case SDLK_F9:  return Key::F9;
+		case SDLK_F10: return Key::F10;
+		case SDLK_F11: return Key::F11;
+		case SDLK_F12: return Key::F12;
+
+		// ── Numpad (some gptokeyb configs route to numpad) ──────────
+		case SDLK_KP_0: return Key::KP_0;
+		case SDLK_KP_1: return Key::KP_1;
+		case SDLK_KP_2: return Key::KP_2;
+		case SDLK_KP_3: return Key::KP_3;
+		case SDLK_KP_4: return Key::KP_4;
+		case SDLK_KP_5: return Key::KP_5;
+		case SDLK_KP_6: return Key::KP_6;
+		case SDLK_KP_7: return Key::KP_7;
+		case SDLK_KP_8: return Key::KP_8;
+		case SDLK_KP_9: return Key::KP_9;
+		case SDLK_KP_ENTER:    return Key::KP_ENTER;
+		case SDLK_KP_PLUS:     return Key::KP_ADD;
+		case SDLK_KP_MINUS:    return Key::KP_SUBTRACT;
+		case SDLK_KP_MULTIPLY: return Key::KP_MULTIPLY;
+		case SDLK_KP_DIVIDE:   return Key::KP_DIVIDE;
+		case SDLK_KP_PERIOD:   return Key::KP_PERIOD;
+
+		// ── Symbol keys (USB keyboard text entry) ────────────────────
+		case SDLK_BACKQUOTE:    return Key::QUOTELEFT;   // `~
+		case SDLK_MINUS:        return Key::MINUS;
+		case SDLK_EQUALS:       return Key::EQUAL;
+		case SDLK_LEFTBRACKET:  return Key::BRACKETLEFT;
+		case SDLK_RIGHTBRACKET: return Key::BRACKETRIGHT;
+		case SDLK_BACKSLASH:    return Key::BACKSLASH;
+		case SDLK_SEMICOLON:    return Key::SEMICOLON;
+		case SDLK_QUOTE:        return Key::APOSTROPHE;
+		case SDLK_COMMA:        return Key::COMMA;
+		case SDLK_PERIOD:       return Key::PERIOD;
+		case SDLK_SLASH:        return Key::SLASH;
+
+		default:
+			// Anything we didn't map = dropped. Keys most likely to land
+			// here in practice: media keys, lock keys, F13+. If a deployed
+			// gptokeyb config routes a button to one of these, add the
+			// case above — silent NONE means an unresponsive UI.
+			//
+			// Logging the dropped key (with its SDL name when available)
+			// is the only way to spot a gap in this table during a real
+			// handheld test session — without it the symptom is "button
+			// X just doesn't work" and we have no hint why.
+			print_verbose(vformat(
+					"DisplayServerSDL2: dropped SDL key (no godot Key mapping). "
+					"SDLK code=0x%x name=%s",
+					(int)sym, String(SDL_GetKeyName(sym))));
+			return Key::NONE;
+	}
+}
+
+// SDL_GameController is SDL2's normalized gamepad layout. The button enum
+// values match godot's JoyButton 1:1 because both are SDL_GameController
+// derived — A=0, B=1, X=2, Y=3, etc. Forward as-is and let godot's Input
+// do the action mapping.
+//
+// NOTE this path is only reached for events SDL2 actually receives. With
+// SDL_VIDEODRIVER=dummy SDL doesn't probe evdev keyboards/gamepads, so
+// in practice every gamepad event arrives via _process_evdev() below
+// instead — this function stays in case a future configuration enables
+// a real SDL2 video driver where SDL DOES surface controller events.
+static JoyButton _sdl_controller_button_to_godot(SDL_GameControllerButton b) {
+	if (b < SDL_CONTROLLER_BUTTON_A || b >= SDL_CONTROLLER_BUTTON_MAX) {
+		return JoyButton::INVALID;
+	}
+	return (JoyButton)(int)b;
+}
+
+static JoyAxis _sdl_controller_axis_to_godot(SDL_GameControllerAxis a) {
+	if (a < SDL_CONTROLLER_AXIS_LEFTX || a >= SDL_CONTROLLER_AXIS_MAX) {
+		return JoyAxis::INVALID;
+	}
+	return (JoyAxis)(int)a;
+}
+
 void DisplayServerSDL2::_process_sdl_event(const SDL_Event &p_ev) {
 	switch (p_ev.type) {
 		case SDL_QUIT:
@@ -338,8 +585,69 @@ void DisplayServerSDL2::_process_sdl_event(const SDL_Event &p_ev) {
 				}
 			}
 			break;
-		// TODO: SDL_KEYDOWN/UP, SDL_MOUSEMOTION, SDL_MOUSEBUTTON{DOWN,UP} → godot InputEventKey/MouseMotion/MouseButton
-		// Skipped for POC — godot main loop will run + render even with no input.
+
+		// Keyboard — translate SDL2 keycode to godot Key enum. Without this,
+		// gptokeyb's synthesized keyboard events fall through to default:
+		// break below and never reach godot's Input singleton, so godot UI
+		// navigation (ui_accept etc.) never fires on handheld CFWs.
+		case SDL_KEYDOWN:
+		case SDL_KEYUP: {
+			Ref<InputEventKey> k;
+			k.instantiate();
+			k->set_pressed(p_ev.type == SDL_KEYDOWN);
+			k->set_echo(p_ev.key.repeat != 0);
+			Key mapped = _sdl_keycode_to_godot(p_ev.key.keysym.sym);
+			k->set_keycode(mapped);
+			k->set_physical_keycode(mapped);
+			// Log the inbound key so a handheld test session can confirm
+			// from godot.log that the event made it this far. If `mapped`
+			// is NONE the _sdl_keycode_to_godot default branch already
+			// logged the SDL name; here we log the mapped godot Key for
+			// the success path too.
+			print_verbose(vformat(
+					"DisplayServerSDL2: SDL_KEY%s sdlk=0x%x → godot Key=0x%x repeat=%d",
+					p_ev.type == SDL_KEYDOWN ? "DOWN" : "UP",
+					(int)p_ev.key.keysym.sym, (int)mapped, (int)p_ev.key.repeat));
+			Input::get_singleton()->parse_input_event(k);
+		} break;
+
+		// Gamepad button — for the launcher this is path B (no gptokeyb in
+		// the mix). godot's Input::joy_button hands off to InputDefault which
+		// dispatches InputEventJoypadButton for us.
+		case SDL_CONTROLLERBUTTONDOWN:
+		case SDL_CONTROLLERBUTTONUP: {
+			JoyButton btn = _sdl_controller_button_to_godot(
+					(SDL_GameControllerButton)p_ev.cbutton.button);
+			print_verbose(vformat(
+					"DisplayServerSDL2: SDL_CONTROLLERBUTTON%s which=%d sdl_btn=%d → godot JoyButton=%d",
+					p_ev.type == SDL_CONTROLLERBUTTONDOWN ? "DOWN" : "UP",
+					p_ev.cbutton.which, (int)p_ev.cbutton.button, (int)btn));
+			if (btn != JoyButton::INVALID) {
+				Input::get_singleton()->joy_button(p_ev.cbutton.which, btn,
+						p_ev.type == SDL_CONTROLLERBUTTONDOWN);
+			}
+		} break;
+
+		// Gamepad axis (analog sticks + triggers).
+		case SDL_CONTROLLERAXISMOTION: {
+			JoyAxis axis = _sdl_controller_axis_to_godot(
+					(SDL_GameControllerAxis)p_ev.caxis.axis);
+			if (axis != JoyAxis::INVALID) {
+				// SDL axis is int16 [-32768, 32767]; godot wants -1..1.
+				float v = p_ev.caxis.value / (p_ev.caxis.value < 0 ? 32768.0f : 32767.0f);
+				// Verbose-only — axis motion fires every frame and would
+				// swamp the log if always-on. Filter to > 0.3 deflection
+				// so we still catch real input but skip resting noise.
+				if (Math::abs(v) > 0.3f) {
+					print_verbose(vformat(
+							"DisplayServerSDL2: SDL_CONTROLLERAXISMOTION which=%d axis=%d → godot JoyAxis=%d v=%f",
+							p_ev.caxis.which, (int)p_ev.caxis.axis, (int)axis, v));
+				}
+				Input::get_singleton()->joy_axis(p_ev.caxis.which, axis, v);
+			}
+		} break;
+
+		// TODO future work: SDL_MOUSEMOTION / SDL_MOUSEBUTTON*, SDL_TEXTINPUT.
 		default:
 			break;
 	}
@@ -350,7 +658,322 @@ void DisplayServerSDL2::process_events() {
 	while (SDL_PollEvent(&ev)) {
 		_process_sdl_event(ev);
 	}
+	_process_evdev();
 	Input::get_singleton()->flush_buffered_events();
+}
+
+// ===================================================================
+// evdev fast path — bypass SDL2's input subsystem entirely
+// ===================================================================
+//
+// Why we go around SDL: SDL_VIDEODRIVER=dummy disables the evdev
+// keyboard/mouse probes (no window → no input). On TrimUI handhelds we
+// can't run without dummy because SDL's KMSDRM driver collides with our
+// own KMS+GBM+EGL bring-up (we own /dev/dri/card0, SDL would fight us
+// for it). The kernel doesn't care which userspace process reads
+// /dev/input/event*, so we just read the events ourselves.
+//
+// The evdev → godot translation we need is small:
+//   * EV_KEY with code in KEY_* range → godot InputEventKey
+//   * EV_KEY with code in BTN_GAMEPAD range → godot Input::joy_button
+//   * EV_ABS on a joystick device → godot Input::joy_axis
+//
+// We classify devices once at startup by looking at their event bits via
+// EVIOCGBIT. A device that exposes ABS_X and BTN_GAMEPAD is treated as a
+// joystick; a device that exposes KEY_A is treated as a keyboard.
+// (Some devices are both — e.g. composite gamepads with extra keys —
+// and we set both flags; no harm done.)
+
+// Map a kernel keycode (KEY_* from <linux/input-event-codes.h>) to godot
+// Key. Only the keys gptokeyb produces by default + the common ASCII set;
+// extend as needed. Unknown codes return Key::NONE and are dropped with
+// a print_verbose so a deployed config flagging "key X doesn't work" has
+// a breadcrumb in godot.log.
+static Key _evdev_keycode_to_godot(uint16_t code) {
+	switch (code) {
+		// Letters (kernel uses ASCII letter codes, godot Key::A = 0x41).
+		case KEY_A: return Key::A; case KEY_B: return Key::B; case KEY_C: return Key::C;
+		case KEY_D: return Key::D; case KEY_E: return Key::E; case KEY_F: return Key::F;
+		case KEY_G: return Key::G; case KEY_H: return Key::H; case KEY_I: return Key::I;
+		case KEY_J: return Key::J; case KEY_K: return Key::K; case KEY_L: return Key::L;
+		case KEY_M: return Key::M; case KEY_N: return Key::N; case KEY_O: return Key::O;
+		case KEY_P: return Key::P; case KEY_Q: return Key::Q; case KEY_R: return Key::R;
+		case KEY_S: return Key::S; case KEY_T: return Key::T; case KEY_U: return Key::U;
+		case KEY_V: return Key::V; case KEY_W: return Key::W; case KEY_X: return Key::X;
+		case KEY_Y: return Key::Y; case KEY_Z: return Key::Z;
+
+		// Digits — kernel KEY_0..KEY_9 macros got undef'd at the top of
+		// the file (they collide with godot Key::KEY_0..Key::KEY_9). Use
+		// the cached LINUX_KEY_* constexpr ints instead.
+		case LINUX_KEY_0: return Key::KEY_0; case LINUX_KEY_1: return Key::KEY_1;
+		case LINUX_KEY_2: return Key::KEY_2; case LINUX_KEY_3: return Key::KEY_3;
+		case LINUX_KEY_4: return Key::KEY_4; case LINUX_KEY_5: return Key::KEY_5;
+		case LINUX_KEY_6: return Key::KEY_6; case LINUX_KEY_7: return Key::KEY_7;
+		case LINUX_KEY_8: return Key::KEY_8; case LINUX_KEY_9: return Key::KEY_9;
+
+		// Control / whitespace.
+		case KEY_ENTER:     return Key::ENTER;       // gptokeyb A → Enter (ui_accept)
+		case KEY_ESC:       return Key::ESCAPE;      // gptokeyb B → Esc   (ui_cancel)
+		case KEY_BACKSPACE: return Key::BACKSPACE;
+		case KEY_TAB:       return Key::TAB;
+		case KEY_SPACE:     return Key::SPACE;
+
+		// Arrow keys (gptokeyb's D-pad mapping).
+		case KEY_UP:    return Key::UP;
+		case KEY_DOWN:  return Key::DOWN;
+		case KEY_LEFT:  return Key::LEFT;
+		case KEY_RIGHT: return Key::RIGHT;
+
+		// Modifiers.
+		case KEY_LEFTSHIFT:
+		case KEY_RIGHTSHIFT: return Key::SHIFT;
+		case KEY_LEFTCTRL:
+		case KEY_RIGHTCTRL:  return Key::CTRL;
+		case KEY_LEFTALT:
+		case KEY_RIGHTALT:   return Key::ALT;
+		case KEY_LEFTMETA:
+		case KEY_RIGHTMETA:  return Key::META;
+
+		// Navigation.
+		case KEY_HOME:     return Key::HOME;
+		case KEY_END:      return Key::END;
+		case KEY_PAGEUP:   return Key::PAGEUP;
+		case KEY_PAGEDOWN: return Key::PAGEDOWN;
+		case KEY_INSERT:   return Key::INSERT;
+		// KEY_DELETE macro also undef'd at file top — use cached value.
+		case LINUX_KEY_DELETE: return Key::KEY_DELETE;
+
+		// Function keys F1-F12.
+		case KEY_F1:  return Key::F1;  case KEY_F2:  return Key::F2;
+		case KEY_F3:  return Key::F3;  case KEY_F4:  return Key::F4;
+		case KEY_F5:  return Key::F5;  case KEY_F6:  return Key::F6;
+		case KEY_F7:  return Key::F7;  case KEY_F8:  return Key::F8;
+		case KEY_F9:  return Key::F9;  case KEY_F10: return Key::F10;
+		case KEY_F11: return Key::F11; case KEY_F12: return Key::F12;
+
+		default:
+			print_verbose(vformat("DisplayServerSDL2/evdev: dropped EV_KEY code=%d (no godot mapping)", (int)code));
+			return Key::NONE;
+	}
+}
+
+// Map a kernel BTN_* gamepad code to godot JoyButton. Standard Xbox-360
+// layout — A=BTN_SOUTH, B=BTN_EAST, etc. — which is what every mainstream
+// handheld controller emits. Unknown codes return INVALID and are dropped.
+static JoyButton _evdev_button_to_godot(uint16_t code) {
+	switch (code) {
+		case BTN_SOUTH:        return JoyButton::A;
+		case BTN_EAST:         return JoyButton::B;
+		case BTN_WEST:         return JoyButton::X;
+		case BTN_NORTH:        return JoyButton::Y;
+		case BTN_TL:           return JoyButton::LEFT_SHOULDER;
+		case BTN_TR:           return JoyButton::RIGHT_SHOULDER;
+		case BTN_TL2:          return JoyButton::PADDLE1;
+		case BTN_TR2:          return JoyButton::PADDLE2;
+		case BTN_SELECT:       return JoyButton::BACK;
+		case BTN_START:        return JoyButton::START;
+		case BTN_MODE:         return JoyButton::GUIDE;
+		case BTN_THUMBL:       return JoyButton::LEFT_STICK;
+		case BTN_THUMBR:       return JoyButton::RIGHT_STICK;
+		case BTN_DPAD_UP:      return JoyButton::DPAD_UP;
+		case BTN_DPAD_DOWN:    return JoyButton::DPAD_DOWN;
+		case BTN_DPAD_LEFT:    return JoyButton::DPAD_LEFT;
+		case BTN_DPAD_RIGHT:   return JoyButton::DPAD_RIGHT;
+		default:               return JoyButton::INVALID;
+	}
+}
+
+// ABS_* axis code → godot JoyAxis. Sticks/triggers; hat (ABS_HAT0X/Y) is
+// handled separately because it's an enum rather than a continuous axis.
+static JoyAxis _evdev_axis_to_godot(uint16_t code) {
+	switch (code) {
+		case ABS_X:     return JoyAxis::LEFT_X;
+		case ABS_Y:     return JoyAxis::LEFT_Y;
+		case ABS_RX:    return JoyAxis::RIGHT_X;
+		case ABS_RY:    return JoyAxis::RIGHT_Y;
+		case ABS_Z:     return JoyAxis::TRIGGER_LEFT;
+		case ABS_RZ:    return JoyAxis::TRIGGER_RIGHT;
+		default:        return JoyAxis::INVALID;
+	}
+}
+
+// Pull an EVIOCGBIT bitmask into a stack buffer and tell us whether a
+// particular code is supported. We don't EVIOCGRAB because some real
+// devices (TRIMUI Player1) are already grabbed by the system's MainUI;
+// reading without grab is allowed and that's all we need.
+static bool _evdev_has_bit(int fd, int evtype, int code) {
+	uint8_t bits[(KEY_MAX / 8) + 1] = {};
+	if (ioctl(fd, EVIOCGBIT(evtype, sizeof(bits)), bits) < 0) {
+		return false;
+	}
+	return (bits[code / 8] & (1 << (code % 8))) != 0;
+}
+
+void DisplayServerSDL2::_scan_evdev() {
+	DIR *dir = opendir("/dev/input");
+	if (!dir) {
+		ERR_PRINT(vformat("DisplayServerSDL2/evdev: opendir(/dev/input) failed: %s", strerror(errno)));
+		return;
+	}
+	struct dirent *de;
+	while ((de = readdir(dir)) != nullptr) {
+		String name = String::utf8(de->d_name);
+		if (!name.begins_with("event")) {
+			continue;
+		}
+		String path = "/dev/input/" + name;
+		int fd = open(path.utf8().get_data(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (fd < 0) {
+			print_verbose(vformat("DisplayServerSDL2/evdev: open(%s) failed: %s", path, strerror(errno)));
+			continue;
+		}
+
+		EvdevHandle h;
+		h.fd = fd;
+		h.path = path;
+		// Heuristic: anything that has KEY_A → keyboard; anything with BTN_GAMEPAD/SOUTH or ABS_X → joystick.
+		h.is_keyboard = _evdev_has_bit(fd, EV_KEY, KEY_A);
+		h.is_joystick = _evdev_has_bit(fd, EV_KEY, BTN_GAMEPAD) || _evdev_has_bit(fd, EV_KEY, BTN_SOUTH) || _evdev_has_bit(fd, EV_ABS, ABS_X);
+		if (!h.is_keyboard && !h.is_joystick) {
+			close(fd);
+			continue;
+		}
+		if (h.is_joystick) {
+			h.joy_id = Input::get_singleton()->get_unused_joy_id();
+			char devname[256] = "evdev_joypad";
+			ioctl(fd, EVIOCGNAME(sizeof(devname)), devname);
+			Input::get_singleton()->joy_connection_changed(h.joy_id, true, String::utf8(devname), "");
+			print_verbose(vformat("DisplayServerSDL2/evdev: joystick %s id=%d name=%s", path, (int)h.joy_id, String::utf8(devname)));
+		}
+		if (h.is_keyboard) {
+			print_verbose(vformat("DisplayServerSDL2/evdev: keyboard %s", path));
+		}
+		evdev_handles.push_back(h);
+	}
+	closedir(dir);
+	print_verbose(vformat("DisplayServerSDL2/evdev: scan complete, %d devices opened", evdev_handles.size()));
+}
+
+void DisplayServerSDL2::_close_evdev() {
+	for (const EvdevHandle &h : evdev_handles) {
+		if (h.fd >= 0) {
+			close(h.fd);
+		}
+	}
+	evdev_handles.clear();
+}
+
+void DisplayServerSDL2::_process_evdev() {
+	struct input_event ev;
+	for (const EvdevHandle &h : evdev_handles) {
+		int events_this_device = 0;
+		while (true) {
+			ssize_t n = read(h.fd, &ev, sizeof(ev));
+			if (n != (ssize_t)sizeof(ev)) {
+				if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+					// Real error (not just "no data") — print once.
+					static bool warned = false;
+					if (!warned) {
+						warned = true;
+						print_verbose(vformat("DisplayServerSDL2/evdev: read(%s) error: %s",
+								h.path, strerror(errno)));
+					}
+				}
+				break; // EAGAIN, partial, or real error — done for this tick
+			}
+			events_this_device++;
+			// Verbose log every event so we can see in godot.log exactly
+			// what the kernel handed us. Without this it's impossible to
+			// tell whether (a) we never get data (grab issue), (b) we
+			// get data but the type/code doesn't map (translation gap),
+			// or (c) we map fine but godot's Input subsystem swallows it.
+			print_verbose(vformat(
+					"DisplayServerSDL2/evdev: %s type=%d code=%d value=%d",
+					h.path, (int)ev.type, (int)ev.code, (int)ev.value));
+			switch (ev.type) {
+				case EV_KEY: {
+					// Gamepad button. Input::joy_button updates the
+					// joypad state AND internally builds an
+					// InputEventJoypadButton + calls parse_input_event,
+					// so one call is enough — an earlier version of this
+					// file ALSO ran parse_input_event explicitly to work
+					// around an apparent delivery gap, but the real gap
+					// was Input::set_event_dispatch_function missing from
+					// the constructor; with that fixed the extra
+					// parse_input_event becomes a duplicate that fires
+					// every action twice (godot prints a "parsed more
+					// than once" warning, and a single D-pad press skips
+					// two list items).
+					JoyButton jb = _evdev_button_to_godot(ev.code);
+					if (jb != JoyButton::INVALID && h.is_joystick) {
+						Input::get_singleton()->joy_button(h.joy_id, jb, ev.value != 0);
+						print_verbose(vformat(
+								"DisplayServerSDL2/evdev: joy_button device=%d btn=%d pressed=%d",
+								h.joy_id, (int)jb, (int)(ev.value != 0)));
+						break;
+					}
+					// Keyboard key.
+					Key k = _evdev_keycode_to_godot(ev.code);
+					if (k != Key::NONE) {
+						Ref<InputEventKey> ke;
+						ke.instantiate();
+						ke->set_pressed(ev.value != 0);
+						ke->set_echo(ev.value == 2);
+						ke->set_keycode(k);
+						ke->set_physical_keycode(k);
+						Input::get_singleton()->parse_input_event(ke);
+						print_verbose(vformat(
+								"DisplayServerSDL2/evdev: dispatched Key keycode=%d pressed=%d",
+								(int)k, (int)(ev.value != 0)));
+					}
+				} break;
+				case EV_ABS: {
+					// DPad on TRIMUI / many handhelds is wired to
+					// ABS_HAT0X / ABS_HAT0Y (digital pad reported as a
+					// 3-valued axis -1/0/+1). godot expects DPad as
+					// JoyButton::DPAD_*. Translate the HAT axis into two
+					// independent press/release JoypadButton events so
+					// godot UI ui_left/ui_right/ui_up/ui_down navigation
+					// works out of the box.
+					if (ev.code == ABS_HAT0X || ev.code == ABS_HAT0Y) {
+						if (!h.is_joystick) {
+							break;
+						}
+						JoyButton neg = (ev.code == ABS_HAT0X) ? JoyButton::DPAD_LEFT : JoyButton::DPAD_UP;
+						JoyButton pos = (ev.code == ABS_HAT0X) ? JoyButton::DPAD_RIGHT : JoyButton::DPAD_DOWN;
+						// Release whichever side wasn't pressed this tick
+						// + press the one that is. For value=0 (centered),
+						// both get released. Input::joy_button does the
+						// InputEvent creation + parse_input_event internally
+						// (same reason we don't double-dispatch in the
+						// EV_KEY branch above — would cause D-pad to skip
+						// two items per press).
+						Input::get_singleton()->joy_button(h.joy_id, neg, ev.value < 0);
+						Input::get_singleton()->joy_button(h.joy_id, pos, ev.value > 0);
+						print_verbose(vformat(
+								"DisplayServerSDL2/evdev: HAT %s value=%d → neg=%d pos=%d",
+								(ev.code == ABS_HAT0X) ? "X" : "Y",
+								ev.value, (int)(ev.value < 0), (int)(ev.value > 0)));
+						break;
+					}
+					JoyAxis ax = _evdev_axis_to_godot(ev.code);
+					if (ax != JoyAxis::INVALID && h.is_joystick) {
+						// We don't yet pull axis ranges via EVIOCGABS, so
+						// assume signed 16-bit values: divide by 32768.
+						// This is correct for most gamepads; analog sticks
+						// with a different range need EVIOCGABS at scan
+						// time. Triggers also need separate scaling (they
+						// use unsigned 0..255 on some kernels). TODO when
+						// a real game needs the precision.
+						float v = ev.value / 32768.0f;
+						Input::get_singleton()->joy_axis(h.joy_id, ax, v);
+					}
+				} break;
+				default:
+					break;
+			}
+		}
+	}
 }
 
 // ===================================================================

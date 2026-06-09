@@ -58,6 +58,37 @@ class DisplayServerSDL2 : public DisplayServer {
 	void _dispatch_event(const Ref<InputEvent> &p_event);
 	void _process_sdl_event(const SDL_Event &p_ev);
 
+	// Static wrapper registered with Input::set_event_dispatch_function in
+	// the constructor. Every other DisplayServer (X11/Wayland/Windows/
+	// Android/Web) registers a function like this so events that go
+	// through Input::parse_input_event eventually reach the SceneTree's
+	// input dispatch path (and thus script _input(event) callbacks).
+	// Without this, parse_input_event updates joy/key state internally
+	// but the event never fires _input — which is exactly the bug that
+	// kept gamepad input from working on this fork before.
+	static void _dispatch_input_events(const Ref<InputEvent> &p_event);
+
+	// ── evdev input fast path ────────────────────────────────────────
+	// We hack the video stack (KMS+GBM+EGL bypassing SDL's video driver
+	// because Mali libmali rejects EGL_KHR_platform_x11) — by symmetry we
+	// hack the input stack too: SDL2's "dummy" video driver disables
+	// keyboard/mouse evdev probing, and on TrimUI-style handhelds the
+	// system MainUI / keymon / OSD daemons EVIOCGRAB the real /dev/input
+	// devices anyway. We bypass SDL by opening /dev/input/event* directly
+	// and reading struct input_event ourselves. See _scan_evdev() in the
+	// .cpp for the device-classification heuristic.
+	struct EvdevHandle {
+		int fd = -1;
+		String path;
+		bool is_keyboard = false;
+		bool is_joystick = false;
+		uint32_t joy_id = 0; // godot Input joy device id; only valid if is_joystick
+	};
+	Vector<EvdevHandle> evdev_handles;
+	void _scan_evdev();
+	void _close_evdev();
+	void _process_evdev();
+
 	static DisplayServer *create_func(const String &p_rendering_driver, WindowMode p_mode, VSyncMode p_vsync_mode,
 			uint32_t p_flags, const Vector2i *p_position, const Vector2i &p_resolution,
 			int p_screen, Context p_context, int64_t p_parent_window, Error &r_error);
