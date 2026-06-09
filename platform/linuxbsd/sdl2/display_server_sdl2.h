@@ -18,6 +18,7 @@
 #ifdef SDL2_ENABLED
 
 #include "core/input/input.h"
+#include "input_remap.h"
 #include "servers/display_server.h"
 
 // 头文件只用前向声明,实质 include 全在 .cpp。
@@ -85,6 +86,14 @@ class DisplayServerSDL2 : public DisplayServer {
 		uint32_t joy_id = 0; // godot Input joy device id; only valid if is_joystick
 	};
 	Vector<EvdevHandle> evdev_handles;
+
+	// Per-port button remap loaded from ./input_remap.cfg (or built-in
+	// defaults if the cfg is absent). The button_map is keyed by kernel
+	// BTN_* code, value is the JoyButton the event loop dispatches. HAT
+	// (D-pad) is intentionally not configurable — see _process_evdev for
+	// the hardcoded HAT0X/Y → DPAD_* mapping.
+	InputRemap input_remap;
+
 	void _scan_evdev();
 	void _close_evdev();
 	void _process_evdev();

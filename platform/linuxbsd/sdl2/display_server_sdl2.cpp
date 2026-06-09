@@ -9,6 +9,7 @@
 #include "core/input/input.h"
 #include "core/input/input_event.h"
 #include "core/os/keyboard.h"
+#include "input_remap.h"
 #include "main/main.h"
 
 // ── evdev (Linux raw input) ──────────────────────────────────────────
@@ -757,30 +758,17 @@ static Key _evdev_keycode_to_godot(uint16_t code) {
 	}
 }
 
-// Map a kernel BTN_* gamepad code to godot JoyButton. Standard Xbox-360
-// layout — A=BTN_SOUTH, B=BTN_EAST, etc. — which is what every mainstream
-// handheld controller emits. Unknown codes return INVALID and are dropped.
-static JoyButton _evdev_button_to_godot(uint16_t code) {
-	switch (code) {
-		case BTN_SOUTH:        return JoyButton::A;
-		case BTN_EAST:         return JoyButton::B;
-		case BTN_WEST:         return JoyButton::X;
-		case BTN_NORTH:        return JoyButton::Y;
-		case BTN_TL:           return JoyButton::LEFT_SHOULDER;
-		case BTN_TR:           return JoyButton::RIGHT_SHOULDER;
-		case BTN_TL2:          return JoyButton::PADDLE1;
-		case BTN_TR2:          return JoyButton::PADDLE2;
-		case BTN_SELECT:       return JoyButton::BACK;
-		case BTN_START:        return JoyButton::START;
-		case BTN_MODE:         return JoyButton::GUIDE;
-		case BTN_THUMBL:       return JoyButton::LEFT_STICK;
-		case BTN_THUMBR:       return JoyButton::RIGHT_STICK;
-		case BTN_DPAD_UP:      return JoyButton::DPAD_UP;
-		case BTN_DPAD_DOWN:    return JoyButton::DPAD_DOWN;
-		case BTN_DPAD_LEFT:    return JoyButton::DPAD_LEFT;
-		case BTN_DPAD_RIGHT:   return JoyButton::DPAD_RIGHT;
-		default:               return JoyButton::INVALID;
-	}
+// Map a kernel BTN_* gamepad code to godot JoyButton through the
+// per-port InputRemap table. Anything not in the table returns INVALID
+// and gets dropped — that's how a user disables a button by writing
+// `a = NONE` in input_remap.cfg.
+//
+// The previous version was a hardcoded switch covering Xbox-360 layout;
+// it now lives in InputRemap::populate_defaults() as the fallback when
+// no cfg is present, so out-of-the-box behaviour is unchanged.
+static JoyButton _evdev_button_to_godot(const InputRemap &remap, uint16_t code) {
+	const JoyButton *p = remap.button_map.getptr(code);
+	return p ? *p : JoyButton::INVALID;
 }
 
 // ABS_* axis code → godot JoyAxis. Sticks/triggers; hat (ABS_HAT0X/Y) is
@@ -810,6 +798,17 @@ static bool _evdev_has_bit(int fd, int evtype, int code) {
 }
 
 void DisplayServerSDL2::_scan_evdev() {
+	// Load the per-port input_remap.cfg before opening any devices so
+	// the first events we read can be looked up correctly. The cfg is
+	// optional; load_or_default() falls back to baked-in defaults if
+	// the file is absent.
+	String loaded = input_remap.load_or_default();
+	if (loaded.is_empty()) {
+		print_verbose("DisplayServerSDL2/evdev: no input_remap.cfg found, using built-in defaults");
+	} else {
+		print_verbose(vformat("DisplayServerSDL2/evdev: input_remap.cfg loaded from %s", loaded));
+	}
+
 	DIR *dir = opendir("/dev/input");
 	if (!dir) {
 		ERR_PRINT(vformat("DisplayServerSDL2/evdev: opendir(/dev/input) failed: %s", strerror(errno)));
@@ -904,7 +903,7 @@ void DisplayServerSDL2::_process_evdev() {
 					// every action twice (godot prints a "parsed more
 					// than once" warning, and a single D-pad press skips
 					// two list items).
-					JoyButton jb = _evdev_button_to_godot(ev.code);
+					JoyButton jb = _evdev_button_to_godot(input_remap, ev.code);
 					if (jb != JoyButton::INVALID && h.is_joystick) {
 						Input::get_singleton()->joy_button(h.joy_id, jb, ev.value != 0);
 						print_verbose(vformat(
