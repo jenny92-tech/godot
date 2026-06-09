@@ -166,8 +166,59 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 	}
 	poc_diag("DSDL2: KMSGBMDevice ready");
 
-	window_size = Size2i(kms_dev->get_mode_width(), kms_dev->get_mode_height());
-	poc_diag_fmt("DSDL2: window_size=%dx%d", window_size.width, window_size.height);
+	// Authoritative panel size.
+	//
+	// Default: the real KMSDRM connector mode width/height — what the
+	// hardware reports. Universal: TrimUI / MiniLoong / RG35XX / any
+	// future ARM handheld using our DSDL2 backend gets the correct
+	// value automatically because DRM knows the panel.
+	//
+	// Override hooks (all optional, port-side via launcher.sh env):
+	//   GODOT_SDL2_PANEL_WIDTH  — force panel width (any positive int)
+	//   GODOT_SDL2_PANEL_HEIGHT — force panel height (any positive int)
+	//   GODOT_SDL2_ROTATION     — store rotation degrees, 0/90/180/270
+	//                             (we cache the value; actual rotation
+	//                             application is per-device future work)
+	//
+	// Why env, not a config file: launcher.sh already knows which port
+	// it is and which device it ships on. No extra IO path, no path
+	// resolution, no priority rules. The port author sets one or two
+	// env lines in their launcher.sh; everyone else gets DRM defaults.
+	{
+		int drm_w = kms_dev->get_mode_width();
+		int drm_h = kms_dev->get_mode_height();
+		int panel_w = drm_w;
+		int panel_h = drm_h;
+		const char *env_w = getenv("GODOT_SDL2_PANEL_WIDTH");
+		const char *env_h = getenv("GODOT_SDL2_PANEL_HEIGHT");
+		const char *env_r = getenv("GODOT_SDL2_ROTATION");
+		if (env_w != nullptr) {
+			int v = atoi(env_w);
+			if (v > 0) {
+				panel_w = v;
+			}
+		}
+		if (env_h != nullptr) {
+			int v = atoi(env_h);
+			if (v > 0) {
+				panel_h = v;
+			}
+		}
+		panel_rotation = 0;
+		if (env_r != nullptr) {
+			int v = atoi(env_r);
+			if (v == 0 || v == 90 || v == 180 || v == 270) {
+				panel_rotation = v;
+			}
+		}
+		window_size = Size2i(panel_w, panel_h);
+		poc_diag_fmt("DSDL2: panel %dx%d (DRM=%dx%d, env_w=%s env_h=%s env_r=%s) rotation=%d",
+				panel_w, panel_h, drm_w, drm_h,
+				env_w ? env_w : "<unset>",
+				env_h ? env_h : "<unset>",
+				env_r ? env_r : "<unset>",
+				panel_rotation);
+	}
 
 	// === 第三阶段:自家最小化 EGL bootstrap ===
 #ifdef GLES3_ENABLED
@@ -574,22 +625,38 @@ void DisplayServerSDL2::_process_sdl_event(const SDL_Event &p_ev) {
 			}
 			break;
 		case SDL_WINDOWEVENT:
-			// KMSDRM panels have a fixed mode set at boot — there is no
-			// real "resize" to honor. But SDL2 still emits phantom
-			// SDL_WINDOWEVENT_SIZE_CHANGED / RESIZED events with
-			// arbitrary sizes (commonly 1024x768) during EGL surface
-			// setup, asset preloading, or whenever an internal SDL2
-			// path touches the window. Forwarding them to godot makes
-			// game-side code see Window.Size = 1024x768 mid-boot, which
-			// breaks layout / centering on a 1280x720 panel (StS2's
-			// IntroLogo asset preload reliably triggered this).
+			// Compare any SDL2 resize-event payload against our
+			// authoritative panel size (DRM mode or GODOT_SDL2_PANEL_*
+			// env override, whichever was used at init). Mismatches are
+			// phantom events SDL2 emits while it does internal video-
+			// backend bookkeeping (commonly 1024x768 during EGL setup
+			// or texture preloading); forwarding them to godot makes
+			// game-side Window.Size flip mid-boot and pushes the UI
+			// into a sub-rect of the panel.
 			//
-			// Drop these events entirely on this backend. The actual
-			// window/panel size is fixed by KMSDRM and already cached in
-			// `window_size` when the GBM surface was created.
+			// Matches DO get forwarded — that keeps the door open for
+			// any future real resize (e.g., DRM hotplug, modeset). The
+			// branch is symmetric on every device because `window_size`
+			// is set from authoritative sources at init.
 			if (p_ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
 					p_ev.window.event == SDL_WINDOWEVENT_RESIZED) {
-				// no-op
+				Size2i sdl_payload(p_ev.window.data1, p_ev.window.data2);
+				if (sdl_payload != window_size) {
+					// Phantom — drop silently. Verbose log so a future
+					// debugger sees this happened without polluting
+					// stderr.
+					print_verbose(vformat("DSDL2: dropped phantom SDL2 SIZE_CHANGED %dx%d (real %dx%d)",
+							sdl_payload.width, sdl_payload.height,
+							window_size.width, window_size.height));
+				} else {
+					if (rect_changed_callback.is_valid()) {
+						Variant r = Rect2i(window_position, window_size);
+						const Variant *a[1] = { &r };
+						Variant ret;
+						Callable::CallError err;
+						rect_changed_callback.callp(a, 1, ret, err);
+					}
+				}
 			}
 			break;
 

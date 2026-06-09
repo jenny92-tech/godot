@@ -43,6 +43,13 @@ class DisplayServerSDL2 : public DisplayServer {
 	String rendering_driver;
 	Size2i window_size;
 	Point2i window_position;
+	// Panel rotation in degrees (0/90/180/270). Cached from
+	// GODOT_SDL2_ROTATION env at DSDL2 init. Currently informational
+	// only — actual content rotation is per-port (game-level swap-
+	// rotate, godot Viewport transform, or DRM rotation property)
+	// and not applied here. Will be wired up when MiniLoong-style
+	// portrait-panel ports come online.
+	int panel_rotation = 0;
 	WindowMode window_mode = WINDOW_MODE_WINDOWED;
 	VSyncMode vsync_mode = VSYNC_ENABLED;
 	uint32_t window_flags = 0;
