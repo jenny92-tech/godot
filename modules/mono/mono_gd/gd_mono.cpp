@@ -459,6 +459,56 @@ godot_plugins_initialize_fn initialize_hostfxr_and_godot_plugins(bool &r_runtime
 	return godot_plugins_initialize;
 }
 #else
+// STS2 Linux drop-in compat patcher hook.
+//
+// Modeled exactly on Modin's STS2Mobile.dll loading mechanism (their
+// public doc/runtime/compat-pack-loading-flow.md, §7: "patched Godot/
+// .NET runtime 随后在 Mono publish 目录中寻找并加载 STS2Mobile.dll").
+// They published the patcher convention but kept their godot fork
+// private; we replicate the same hook on our SDL2 fork.
+//
+// Looks for sts2_compat.dll next to the entry assembly. If present,
+// calls STS2LinuxLauncher.ModEntry.Apply via hostfxr. If absent, just
+// logs verbose and continues — vanilla games without the patcher DLL
+// behave identically to upstream.
+//
+// Errors during load are logged but never propagated: the game must
+// boot even if the patcher fails (the patcher is an enhancement layer,
+// not a hard dependency).
+static void try_load_sts2_compat_patcher(
+		load_assembly_and_get_function_pointer_fn load_assembly_and_get_function_pointer) {
+	String compat_dll_path = GodotSharpDirs::get_api_assemblies_dir().path_join("sts2_compat.dll");
+	if (!FileAccess::exists(compat_dll_path)) {
+		print_verbose(".NET: sts2_compat.dll not found, skipping STS2 Linux compat patcher");
+		return;
+	}
+
+	print_verbose(".NET: loading STS2 Linux compat patcher from " + compat_dll_path);
+
+	HostFxrCharString compat_path_hostfxr = str_to_hostfxr(compat_dll_path);
+
+	using compat_apply_fn = void (*)();
+	compat_apply_fn compat_apply = nullptr;
+
+	int rc = load_assembly_and_get_function_pointer(
+			get_data(compat_path_hostfxr),
+			HOSTFXR_STR("STS2LinuxLauncher.ModEntry, sts2_compat"),
+			HOSTFXR_STR("Apply"),
+			UNMANAGEDCALLERSONLY_METHOD,
+			nullptr,
+			(void **)&compat_apply);
+
+	if (rc != 0 || compat_apply == nullptr) {
+		// Log but don't fail — the patcher is optional. Game must still boot.
+		ERR_PRINT(vformat(".NET: STS2 compat patcher load failed with rc=%d. Game will run without compat patches.", rc));
+		return;
+	}
+
+	print_verbose(".NET: calling STS2LinuxLauncher.ModEntry.Apply()");
+	compat_apply();
+	print_verbose(".NET: STS2 Linux compat patches applied");
+}
+
 godot_plugins_initialize_fn initialize_hostfxr_and_godot_plugins(bool &r_runtime_initialized) {
 	godot_plugins_initialize_fn godot_plugins_initialize = nullptr;
 
@@ -482,6 +532,11 @@ godot_plugins_initialize_fn initialize_hostfxr_and_godot_plugins(bool &r_runtime
 			nullptr,
 			(void **)&godot_plugins_initialize);
 	ERR_FAIL_COND_V_MSG(rc != 0, nullptr, ".NET: Failed to get GodotPlugins initialization function pointer");
+
+	// Drop-in patcher hook: load sts2_compat.dll alongside the game's
+	// entry assembly and invoke its Apply() before godot continues.
+	// Optional — missing DLL is a silent no-op.
+	try_load_sts2_compat_patcher(load_assembly_and_get_function_pointer);
 
 	return godot_plugins_initialize;
 }
