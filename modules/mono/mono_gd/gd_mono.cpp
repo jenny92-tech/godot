@@ -485,7 +485,11 @@ static load_assembly_and_get_function_pointer_fn _saved_load_assembly_and_get_fn
 // boot even if the patcher fails (the patcher is an enhancement layer,
 // not a hard dependency).
 static void try_load_sts2_compat_patcher(
-		load_assembly_and_get_function_pointer_fn load_assembly_and_get_function_pointer) {
+		load_assembly_and_get_function_pointer_fn load_assembly_and_get_function_pointer,
+		void *godot_dll_handle,
+		GDMonoCache::ManagedCallbacks *managed_callbacks,
+		const void **interop_funcs,
+		int32_t interop_funcs_size) {
 	String compat_dll_path = GodotSharpDirs::get_api_assemblies_dir().path_join("sts2_compat.dll");
 	if (!FileAccess::exists(compat_dll_path)) {
 		print_verbose(".NET: sts2_compat.dll not found, skipping STS2 Linux compat patcher");
@@ -496,10 +500,34 @@ static void try_load_sts2_compat_patcher(
 
 	HostFxrCharString compat_path_hostfxr = str_to_hostfxr(compat_dll_path);
 
+	// Step 1 — get InitializeGodotSharp pointer. Diagnostic from the
+	// previous build showed AppDomain ends up with TWO GodotSharp
+	// instances — game's, initialized via GodotPlugins.Game.Main, and
+	// ours, with a null NativeFuncs table. First Godot.* call from the
+	// patcher SEGV'd through that null. Calling our bridge initializer
+	// with the same args lights up OUR GodotSharp's NativeFuncs +
+	// DllImportResolver.
+	using compat_init_fn = int (*)(void *godotDllHandle, void *outManagedCallbacks, const void **unmanagedCallbacks, int32_t unmanagedCallbacksSize);
+	compat_init_fn compat_init = nullptr;
+
+	int rc_init = load_assembly_and_get_function_pointer(
+			get_data(compat_path_hostfxr),
+			HOSTFXR_STR("STS2LinuxLauncher.ModEntry, sts2_compat"),
+			HOSTFXR_STR("InitializeGodotSharp"),
+			UNMANAGEDCALLERSONLY_METHOD,
+			nullptr,
+			(void **)&compat_init);
+
+	if (rc_init != 0 || compat_init == nullptr) {
+		ERR_PRINT(vformat(".NET: STS2 compat patcher InitializeGodotSharp load failed with rc=%d. Game will run without compat patches.", rc_init));
+		return;
+	}
+
+	// Step 2 — get Apply pointer.
 	using compat_apply_fn = void (*)();
 	compat_apply_fn compat_apply = nullptr;
 
-	int rc = load_assembly_and_get_function_pointer(
+	int rc_apply = load_assembly_and_get_function_pointer(
 			get_data(compat_path_hostfxr),
 			HOSTFXR_STR("STS2LinuxLauncher.ModEntry, sts2_compat"),
 			HOSTFXR_STR("Apply"),
@@ -507,12 +535,22 @@ static void try_load_sts2_compat_patcher(
 			nullptr,
 			(void **)&compat_apply);
 
-	if (rc != 0 || compat_apply == nullptr) {
-		// Log but don't fail — the patcher is optional. Game must still boot.
-		ERR_PRINT(vformat(".NET: STS2 compat patcher load failed with rc=%d. Game will run without compat patches.", rc));
+	if (rc_apply != 0 || compat_apply == nullptr) {
+		ERR_PRINT(vformat(".NET: STS2 compat patcher Apply load failed with rc=%d. Game will run without compat patches.", rc_apply));
 		return;
 	}
 
+	// Step 3 — bridge bootstrap. Same args godot passed to
+	// game's InitializeFromGameProject, but routed at OUR
+	// GodotSharp's NativeFuncs.Initialize so Godot.* works from
+	// the patcher DLL.
+	print_verbose(".NET: bootstrapping STS2 compat patcher GodotSharp bridge");
+	int init_rc = compat_init(godot_dll_handle, (void *)managed_callbacks, interop_funcs, interop_funcs_size);
+	if (init_rc == 0) {
+		ERR_PRINT(".NET: STS2 compat patcher InitializeGodotSharp returned 0; calling Apply anyway but expect crashes");
+	}
+
+	// Step 4 — install patches.
 	print_verbose(".NET: calling STS2LinuxLauncher.ModEntry.Apply()");
 	compat_apply();
 	print_verbose(".NET: STS2 Linux compat patches applied");
@@ -773,12 +811,18 @@ void GDMono::initialize() {
 	print_verbose(".NET: GodotPlugins initialized");
 
 	// Drop-in compat patcher (sts2_compat.dll) — load NOW that GodotSharp
-	// bridge is wired up. Calling Apply() any earlier means Patches/* code
-	// that references Godot.* APIs binds against half-initialized state
-	// and SEGVs the moment a Harmony postfix later invokes Engine.GetMainLoop
-	// or Window.ContentScale* from game-side methods.
+	// bridge is wired up for game's assembly. The patcher lives in its
+	// own AssemblyLoadContext with a SEPARATE GodotSharp instance, so we
+	// pass the same args godot used for game's InitializeFromGameProject
+	// (godot_dll_handle, &managed_callbacks, interop_funcs,
+	// interop_funcs_size) so the patcher can run NativeFuncs.Initialize
+	// against its own copy of GodotSharp — without that bootstrap, any
+	// Godot.* call from the patcher SEGVs through null function
+	// pointers.
 	if (_saved_load_assembly_and_get_fn) {
-		try_load_sts2_compat_patcher(_saved_load_assembly_and_get_fn);
+		try_load_sts2_compat_patcher(_saved_load_assembly_and_get_fn,
+				godot_dll_handle, &managed_callbacks,
+				interop_funcs, interop_funcs_size);
 	}
 
 	_on_core_api_assembly_loaded();
