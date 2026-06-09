@@ -574,16 +574,22 @@ void DisplayServerSDL2::_process_sdl_event(const SDL_Event &p_ev) {
 			}
 			break;
 		case SDL_WINDOWEVENT:
+			// KMSDRM panels have a fixed mode set at boot — there is no
+			// real "resize" to honor. But SDL2 still emits phantom
+			// SDL_WINDOWEVENT_SIZE_CHANGED / RESIZED events with
+			// arbitrary sizes (commonly 1024x768) during EGL surface
+			// setup, asset preloading, or whenever an internal SDL2
+			// path touches the window. Forwarding them to godot makes
+			// game-side code see Window.Size = 1024x768 mid-boot, which
+			// breaks layout / centering on a 1280x720 panel (StS2's
+			// IntroLogo asset preload reliably triggered this).
+			//
+			// Drop these events entirely on this backend. The actual
+			// window/panel size is fixed by KMSDRM and already cached in
+			// `window_size` when the GBM surface was created.
 			if (p_ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
 					p_ev.window.event == SDL_WINDOWEVENT_RESIZED) {
-				window_size = Size2i(p_ev.window.data1, p_ev.window.data2);
-				if (rect_changed_callback.is_valid()) {
-					Variant r = Rect2i(window_position, window_size);
-					const Variant *a[1] = { &r };
-					Variant ret;
-					Callable::CallError err;
-					rect_changed_callback.callp(a, 1, ret, err);
-				}
+				// no-op
 			}
 			break;
 
