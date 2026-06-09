@@ -459,6 +459,15 @@ godot_plugins_initialize_fn initialize_hostfxr_and_godot_plugins(bool &r_runtime
 	return godot_plugins_initialize;
 }
 #else
+// Saved hostfxr load-assembly delegate from initialize_hostfxr_and_godot_plugins.
+// We need it to load sts2_compat.dll, but the load can't happen until AFTER
+// godot_plugins_initialize() has set up the GodotSharp bridge — running the
+// patcher's Apply() before GodotSharp is alive made any Patches/* code that
+// references Godot.* APIs SEGV when later invoked from game-side method
+// postfixes. So we save the delegate here and call it from GDMono::initialize
+// once initialization is done.
+static load_assembly_and_get_function_pointer_fn _saved_load_assembly_and_get_fn = nullptr;
+
 // STS2 Linux drop-in compat patcher hook.
 //
 // Modeled exactly on Modin's STS2Mobile.dll loading mechanism (their
@@ -533,10 +542,13 @@ godot_plugins_initialize_fn initialize_hostfxr_and_godot_plugins(bool &r_runtime
 			(void **)&godot_plugins_initialize);
 	ERR_FAIL_COND_V_MSG(rc != 0, nullptr, ".NET: Failed to get GodotPlugins initialization function pointer");
 
-	// Drop-in patcher hook: load sts2_compat.dll alongside the game's
-	// entry assembly and invoke its Apply() before godot continues.
-	// Optional — missing DLL is a silent no-op.
-	try_load_sts2_compat_patcher(load_assembly_and_get_function_pointer);
+	// Save the load delegate for the deferred compat patcher call.
+	// We can't call try_load_sts2_compat_patcher here because GodotSharp
+	// hasn't been initialized yet — godot_plugins_initialize() (which
+	// runs *after* this function returns) is what actually wires up
+	// NativeFuncs/ManagedCallbacks. The compat patcher's Apply runs
+	// from GDMono::initialize() once that's done.
+	_saved_load_assembly_and_get_fn = load_assembly_and_get_function_pointer;
 
 	return godot_plugins_initialize;
 }
@@ -759,6 +771,15 @@ void GDMono::initialize() {
 	GDMonoCache::update_godot_api_cache(managed_callbacks);
 
 	print_verbose(".NET: GodotPlugins initialized");
+
+	// Drop-in compat patcher (sts2_compat.dll) — load NOW that GodotSharp
+	// bridge is wired up. Calling Apply() any earlier means Patches/* code
+	// that references Godot.* APIs binds against half-initialized state
+	// and SEGVs the moment a Harmony postfix later invokes Engine.GetMainLoop
+	// or Window.ContentScale* from game-side methods.
+	if (_saved_load_assembly_and_get_fn) {
+		try_load_sts2_compat_patcher(_saved_load_assembly_and_get_fn);
+	}
 
 	_on_core_api_assembly_loaded();
 
