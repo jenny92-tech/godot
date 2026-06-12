@@ -1,7 +1,10 @@
-name: 🛠 Build linuxbsd SDL2 arm64 POC
+name: 🛠 Build linuxbsd SDL2 arm64
 
-# arm64 template_release with our SDL2 DisplayServer. Manual dispatch:
-# variants=base|mono|both. ubuntu:20.04 → glibc ≤ 2.31 for handhelds.
+# arm64 template_release with our SDL2 DisplayServer.
+# ubuntu:20.04 → glibc ≤ 2.31 for handhelds.
+# Default ships BOTH base and mono so memory-tight ports (Black Myth pixel,
+# pre-mono Unity titles) can grab base (~30 MB) and Mono-using titles get
+# the full mono build.
 
 on:
   workflow_dispatch:
@@ -9,12 +12,13 @@ on:
       variants:
         description: 'Which variants to build'
         required: true
-        default: 'mono'
+        default: 'base+mono'
         type: choice
         options:
           - base
           - mono
           - mono-x11
+          - base+mono
           - all
 
 jobs:
@@ -27,10 +31,11 @@ jobs:
       - id: set
         run: |
           case "${{ inputs.variants }}" in
-            base)     echo 'variants=["base"]' >> "$GITHUB_OUTPUT" ;;
-            mono)     echo 'variants=["mono"]' >> "$GITHUB_OUTPUT" ;;
-            mono-x11) echo 'variants=["mono-x11"]' >> "$GITHUB_OUTPUT" ;;
-            *)        echo 'variants=["base","mono","mono-x11"]' >> "$GITHUB_OUTPUT" ;;
+            base)      echo 'variants=["base"]' >> "$GITHUB_OUTPUT" ;;
+            mono)      echo 'variants=["mono"]' >> "$GITHUB_OUTPUT" ;;
+            mono-x11)  echo 'variants=["mono-x11"]' >> "$GITHUB_OUTPUT" ;;
+            base+mono) echo 'variants=["base","mono"]' >> "$GITHUB_OUTPUT" ;;
+            *)         echo 'variants=["base","mono","mono-x11"]' >> "$GITHUB_OUTPUT" ;;
           esac
 
   build:
@@ -160,10 +165,10 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: godot-linuxbsd-sdl2-${{ matrix.variant }}-arm64-POC
+          name: godot-linuxbsd-sdl2-${{ matrix.variant }}-arm64
           path: |
             bin/godot.linuxbsd.template_release.arm64*
             bin/GodotSharp/**
             /tmp/build.log
           if-no-files-found: warn
-          retention-days: 1
+          retention-days: 7
