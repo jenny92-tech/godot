@@ -28,7 +28,7 @@ class KMSGBMDevice;
 class KMSEGLContext;
 
 class DisplayServerSDL2 : public DisplayServer {
-	GDSOFTCLASS(DisplayServerSDL2, DisplayServer);
+	GDCLASS(DisplayServerSDL2, DisplayServer);
 
 	// SDL2 仅用于 events / joystick 输入(VIDEODRIVER=dummy,SDL2 不碰显示)。
 	SDL_Window *window = nullptr;
@@ -121,7 +121,7 @@ class DisplayServerSDL2 : public DisplayServer {
 
 	static DisplayServer *create_func(const String &p_rendering_driver, WindowMode p_mode, VSyncMode p_vsync_mode,
 			uint32_t p_flags, const Vector2i *p_position, const Vector2i &p_resolution,
-			int p_screen, Context p_context, int64_t p_parent_window, Error &r_error);
+			int p_screen, Context p_context, Error &r_error);
 	static Vector<String> get_rendering_drivers_func();
 
 public:

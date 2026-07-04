@@ -90,8 +90,7 @@ void DisplayServerSDL2::register_sdl2_driver() {
 
 DisplayServer *DisplayServerSDL2::create_func(const String &p_rendering_driver, WindowMode p_mode,
 		VSyncMode p_vsync_mode, uint32_t p_flags, const Vector2i *p_position,
-		const Vector2i &p_resolution, int p_screen, Context p_context,
-		int64_t p_parent_window, Error &r_error) {
+		const Vector2i &p_resolution, int p_screen, Context p_context, Error &r_error) {
 	DisplayServer *ds = memnew(DisplayServerSDL2(p_rendering_driver, p_mode, p_vsync_mode, p_flags, p_resolution, p_context, r_error));
 	if (r_error != OK) {
 		ERR_PRINT("DisplayServerSDL2: failed to create display");
