@@ -28,13 +28,13 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef TWEEN_H
+#define TWEEN_H
 
 #include "core/object/ref_counted.h"
 
 class Tween;
 class Node;
-class SceneTree;
 
 class Tweener : public RefCounted {
 	GDCLASS(Tweener, RefCounted);
@@ -43,14 +43,13 @@ class Tweener : public RefCounted {
 
 public:
 	virtual void set_tween(const Ref<Tween> &p_tween);
-	virtual void start();
+	virtual void start() = 0;
 	virtual bool step(double &r_delta) = 0;
 
 protected:
 	static void _bind_methods();
 
 	Ref<Tween> _get_tween();
-	void _finish();
 
 	double elapsed_time = 0;
 	bool finished = false;
@@ -60,7 +59,6 @@ class PropertyTweener;
 class IntervalTweener;
 class CallbackTweener;
 class MethodTweener;
-class SubtweenTweener;
 
 class Tween : public RefCounted {
 	GDCLASS(Tween, RefCounted);
@@ -110,19 +108,16 @@ private:
 	EaseType default_ease = EaseType::EASE_IN_OUT;
 	ObjectID bound_node;
 
-	SceneTree *parent_tree = nullptr;
 	Vector<List<Ref<Tweener>>> tweeners;
 	double total_time = 0;
 	int current_step = -1;
 	int loops = 1;
 	int loops_done = 0;
 	float speed_scale = 1;
-	bool ignore_time_scale = false;
 
 	bool is_bound = false;
 	bool started = false;
 	bool running = true;
-	bool in_step = false;
 	bool dead = false;
 	bool valid = false;
 	bool default_parallel = false;
@@ -136,6 +131,7 @@ private:
 
 	void _start_tweeners();
 	void _stop_internal(bool p_reset);
+	bool _validate_type_match(const Variant &p_from, Variant &r_to);
 
 protected:
 	static void _bind_methods();
@@ -147,7 +143,6 @@ public:
 	Ref<IntervalTweener> tween_interval(double p_time);
 	Ref<CallbackTweener> tween_callback(const Callable &p_callback);
 	Ref<MethodTweener> tween_method(const Callable &p_callback, const Variant p_from, Variant p_to, double p_duration);
-	Ref<SubtweenTweener> tween_subtween(const Ref<Tween> &p_subtween);
 	void append(Ref<Tweener> p_tweener);
 
 	bool custom_step(double p_delta);
@@ -162,20 +157,18 @@ public:
 
 	Ref<Tween> bind_node(const Node *p_node);
 	Ref<Tween> set_process_mode(TweenProcessMode p_mode);
-	TweenProcessMode get_process_mode() const;
+	TweenProcessMode get_process_mode();
 	Ref<Tween> set_pause_mode(TweenPauseMode p_mode);
-	TweenPauseMode get_pause_mode() const;
-	Ref<Tween> set_ignore_time_scale(bool p_ignore = true);
-	bool is_ignoring_time_scale() const;
+	TweenPauseMode get_pause_mode();
 
 	Ref<Tween> set_parallel(bool p_parallel);
 	Ref<Tween> set_loops(int p_loops);
 	int get_loops_left() const;
 	Ref<Tween> set_speed_scale(float p_speed);
 	Ref<Tween> set_trans(TransitionType p_trans);
-	TransitionType get_trans() const;
+	TransitionType get_trans();
 	Ref<Tween> set_ease(EaseType p_ease);
-	EaseType get_ease() const;
+	EaseType get_ease();
 
 	Ref<Tween> parallel();
 	Ref<Tween> chain();
@@ -189,7 +182,7 @@ public:
 	double get_total_time() const;
 
 	Tween();
-	Tween(SceneTree *p_parent_tree);
+	Tween(bool p_valid);
 };
 
 VARIANT_ENUM_CAST(Tween::TweenPauseMode);
@@ -199,8 +192,6 @@ VARIANT_ENUM_CAST(Tween::EaseType);
 
 class PropertyTweener : public Tweener {
 	GDCLASS(PropertyTweener, Tweener);
-
-	double _get_custom_interpolated_value(const Variant &p_value);
 
 public:
 	Ref<PropertyTweener> from(const Variant &p_value);
@@ -246,6 +237,7 @@ class IntervalTweener : public Tweener {
 	GDCLASS(IntervalTweener, Tweener);
 
 public:
+	void start() override;
 	bool step(double &r_delta) override;
 
 	IntervalTweener(double p_time);
@@ -261,6 +253,7 @@ class CallbackTweener : public Tweener {
 public:
 	Ref<CallbackTweener> set_delay(double p_delay);
 
+	void start() override;
 	bool step(double &r_delta) override;
 
 	CallbackTweener(const Callable &p_callback);
@@ -285,6 +278,7 @@ public:
 	Ref<MethodTweener> set_delay(double p_delay);
 
 	void set_tween(const Ref<Tween> &p_tween) override;
+	void start() override;
 	bool step(double &r_delta) override;
 
 	MethodTweener(const Callable &p_callback, const Variant &p_from, const Variant &p_to, double p_duration);
@@ -307,22 +301,4 @@ private:
 	Ref<RefCounted> ref_copy;
 };
 
-class SubtweenTweener : public Tweener {
-	GDCLASS(SubtweenTweener, Tweener);
-
-public:
-	Ref<Tween> subtween;
-	void start() override;
-	bool step(double &r_delta) override;
-
-	Ref<SubtweenTweener> set_delay(double p_delay);
-
-	SubtweenTweener(const Ref<Tween> &p_subtween);
-	SubtweenTweener();
-
-protected:
-	static void _bind_methods();
-
-private:
-	double delay = 0;
-};
+#endif // TWEEN_H

@@ -40,6 +40,20 @@ class DisplayServerSDL2 : public DisplayServer {
 	KMSGBMDevice *kms_dev = nullptr;
 	KMSEGLContext *egl_ctx = nullptr;
 
+	// ── SDL-delegated GL path (the README's original design) ────────────
+	// 当 SDL 用「真」video driver(非 dummy,如 wayland/kmsdrm/x11)时,改让
+	// SDL 自己建窗口 + GL context,出图走 SDL_GL_SwapWindow —— 我们完全不碰
+	// KMS/GBM/EGL。这是 unityloader(HK/黑神话)在同款 Mali 上的做法:平台细节
+	// 全交给 SDL,一份二进制两台通用。
+	//   MiniLoong(系统 weston):launcher 设 SDL_VIDEODRIVER=wayland → SDL 建
+	//     wayland 客户端 surface → weston 合成 + transform=rotate-90,godot 不抢
+	//     KMS(不闪、无需手动旋转)。
+	//   TrimUI(KMSDRM 无合成器):launcher 仍设 SDL_VIDEODRIVER=dummy → use_sdl_gl
+	//     保持 false → 下面那套自写 KMS+GBM+EGL 原样运行(此路径零改动)。
+	// 运行时按 SDL_GetCurrentVideoDriver() 选,不引入新 env。
+	bool use_sdl_gl = false;
+	void *sdl_gl_context = nullptr; // SDL_GLContext(不透明指针);仅 use_sdl_gl 时有效
+
 	String rendering_driver;
 	Size2i window_size;
 	Point2i window_position;

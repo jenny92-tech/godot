@@ -28,24 +28,21 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef ARRAY_H
+#define ARRAY_H
 
 #include "core/typedefs.h"
-#include "core/variant/variant_deep_duplicate.h"
 
 #include <climits>
-#include <initializer_list>
 
-class Callable;
-class StringName;
 class Variant;
-
-struct ArrayPrivate;
-struct ContainerType;
+class ArrayPrivate;
+class Object;
+class StringName;
+class Callable;
 
 class Array {
 	mutable ArrayPrivate *_p;
-	void _ref(const Array &p_from) const;
 	void _unref() const;
 
 public:
@@ -59,19 +56,21 @@ public:
 		_FORCE_INLINE_ bool operator==(const ConstIterator &p_other) const { return element_ptr == p_other.element_ptr; }
 		_FORCE_INLINE_ bool operator!=(const ConstIterator &p_other) const { return element_ptr != p_other.element_ptr; }
 
-		_FORCE_INLINE_ ConstIterator(const Variant *p_element_ptr) :
-				element_ptr(p_element_ptr) {}
+		_FORCE_INLINE_ ConstIterator(const Variant *p_element_ptr, Variant *p_read_only = nullptr) :
+				element_ptr(p_element_ptr), read_only(p_read_only) {}
 		_FORCE_INLINE_ ConstIterator() {}
 		_FORCE_INLINE_ ConstIterator(const ConstIterator &p_other) :
-				element_ptr(p_other.element_ptr) {}
+				element_ptr(p_other.element_ptr), read_only(p_other.read_only) {}
 
 		_FORCE_INLINE_ ConstIterator &operator=(const ConstIterator &p_other) {
 			element_ptr = p_other.element_ptr;
+			read_only = p_other.read_only;
 			return *this;
 		}
 
 	private:
 		const Variant *element_ptr = nullptr;
+		Variant *read_only = nullptr;
 	};
 
 	struct Iterator {
@@ -97,7 +96,7 @@ public:
 		}
 
 		operator ConstIterator() const {
-			return ConstIterator(element_ptr);
+			return ConstIterator(element_ptr, read_only);
 		}
 
 	private:
@@ -110,6 +109,8 @@ public:
 
 	ConstIterator begin() const;
 	ConstIterator end() const;
+
+	void _ref(const Array &p_from) const;
 
 	Variant &operator[](int p_idx);
 	const Variant &operator[](int p_idx) const;
@@ -151,9 +152,7 @@ public:
 	void reverse();
 
 	int find(const Variant &p_value, int p_from = 0) const;
-	int find_custom(const Callable &p_callable, int p_from = 0) const;
 	int rfind(const Variant &p_value, int p_from = -1) const;
-	int rfind_custom(const Callable &p_callable, int p_from = -1) const;
 	int count(const Variant &p_value) const;
 	bool has(const Variant &p_value) const;
 
@@ -165,8 +164,7 @@ public:
 	Variant pop_at(int p_pos);
 
 	Array duplicate(bool p_deep = false) const;
-	Array duplicate_deep(ResourceDeepDuplicateMode p_deep_subresources_mode = RESOURCE_DEEP_DUPLICATE_INTERNAL) const;
-	Array recursive_duplicate(bool p_deep, ResourceDeepDuplicateMode p_deep_subresources_mode, int recursion_count) const;
+	Array recursive_duplicate(bool p_deep, int recursion_count) const;
 
 	Array slice(int p_begin, int p_end = INT_MAX, int p_step = 1, bool p_deep = false) const;
 	Array filter(const Callable &p_callable) const;
@@ -185,25 +183,20 @@ public:
 
 	const void *id() const;
 
-	void set_typed(const ContainerType &p_element_type);
 	void set_typed(uint32_t p_type, const StringName &p_class_name, const Variant &p_script);
-
 	bool is_typed() const;
 	bool is_same_typed(const Array &p_other) const;
-	bool is_same_instance(const Array &p_other) const;
-
-	ContainerType get_element_type() const;
 	uint32_t get_typed_builtin() const;
 	StringName get_typed_class_name() const;
 	Variant get_typed_script() const;
 
 	void make_read_only();
 	bool is_read_only() const;
-	static Array create_read_only();
 
 	Array(const Array &p_base, uint32_t p_type, const StringName &p_class_name, const Variant &p_script);
 	Array(const Array &p_from);
-	Array(std::initializer_list<Variant> p_init);
 	Array();
 	~Array();
 };
+
+#endif // ARRAY_H

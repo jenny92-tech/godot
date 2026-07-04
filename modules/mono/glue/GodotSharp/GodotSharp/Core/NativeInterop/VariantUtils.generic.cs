@@ -7,23 +7,22 @@ namespace Godot.NativeInterop;
 
 public partial class VariantUtils
 {
-    private static InvalidOperationException UnsupportedType<T>() => new InvalidOperationException(
+    private static Exception UnsupportedType<T>() => new InvalidOperationException(
         $"The type is not supported for conversion to/from Variant: '{typeof(T).FullName}'");
 
     internal static class GenericConversion<T>
     {
-        internal delegate godot_variant ToVariantConverter(scoped in T from);
-        internal delegate T FromVariantConverter(in godot_variant from);
-
-        public static unsafe godot_variant ToVariant(scoped in T from) =>
-             ToVariantCb != null ? ToVariantCb(from) : throw UnsupportedType<T>();
+        public static unsafe godot_variant ToVariant(in T from) =>
+            ToVariantCb != null ? ToVariantCb(from) : throw UnsupportedType<T>();
 
         public static unsafe T FromVariant(in godot_variant variant) =>
             FromVariantCb != null ? FromVariantCb(variant) : throw UnsupportedType<T>();
 
-        internal static ToVariantConverter? ToVariantCb;
+        // ReSharper disable once StaticMemberInGenericType
+        internal static unsafe delegate*<in T, godot_variant> ToVariantCb;
 
-        internal static FromVariantConverter? FromVariantCb;
+        // ReSharper disable once StaticMemberInGenericType
+        internal static unsafe delegate*<in godot_variant, T> FromVariantCb;
 
         static GenericConversion()
         {
@@ -32,10 +31,10 @@ public partial class VariantUtils
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static godot_variant CreateFrom<[MustBeVariant] T>(scoped in T from)
+    public static godot_variant CreateFrom<[MustBeVariant] T>(in T from)
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static TTo UnsafeAs<TTo>(in T f) => Unsafe.As<T, TTo>(ref Unsafe.AsRef(in f));
+        static TTo UnsafeAs<TTo>(in T f) => Unsafe.As<T, TTo>(ref Unsafe.AsRef(f));
 
         // `typeof(T) == typeof(X)` is optimized away. We cannot cache `typeof(T)` in a local variable, as it's not optimized when done like that.
 
@@ -228,7 +227,7 @@ public partial class VariantUtils
     public static T ConvertTo<[MustBeVariant] T>(in godot_variant variant)
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static T UnsafeAsT<TFrom>(TFrom f) => Unsafe.As<TFrom, T>(ref Unsafe.AsRef(in f));
+        static T UnsafeAsT<TFrom>(TFrom f) => Unsafe.As<TFrom, T>(ref Unsafe.AsRef(f));
 
         if (typeof(T) == typeof(bool))
             return UnsafeAsT(ConvertToBool(variant));

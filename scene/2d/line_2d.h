@@ -28,7 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef LINE_2D_H
+#define LINE_2D_H
 
 #include "node_2d.h"
 
@@ -54,7 +55,7 @@ public:
 		LINE_TEXTURE_STRETCH
 	};
 
-#ifdef DEBUG_ENABLED
+#ifdef TOOLS_ENABLED
 	virtual Rect2 _edit_get_rect() const override;
 	virtual bool _edit_use_rect() const override;
 	virtual bool _edit_is_selected_on_click(const Point2 &p_point, double p_tolerance) const override;
@@ -145,3 +146,5 @@ private:
 VARIANT_ENUM_CAST(Line2D::LineJointMode)
 VARIANT_ENUM_CAST(Line2D::LineCapMode)
 VARIANT_ENUM_CAST(Line2D::LineTextureMode)
+
+#endif // LINE_2D_H

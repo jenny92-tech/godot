@@ -36,15 +36,11 @@
 // ResourceImporterTextureSettings contains code used by
 // multiple texture importers and the export dialog.
 bool ResourceImporterTextureSettings::should_import_s3tc_bptc() {
-	// Bogodroid: when the project explicitly turns the toggle off
-	// (mobile-only packs targeting Mali/Adreno handhelds), respect it instead
-	// of falling back to the host's preferred format. macOS always reports
-	// PREFERRED_TEXTURE_FORMAT_S3TC_BPTC, so the stock fallback re-enables
-	// S3TC emission for projects whose project.godot explicitly disabled it.
-	if (ProjectSettings::get_singleton()->has_setting("rendering/textures/vram_compression/import_s3tc_bptc")) {
-		return GLOBAL_GET("rendering/textures/vram_compression/import_s3tc_bptc");
+	if (GLOBAL_GET("rendering/textures/vram_compression/import_s3tc_bptc")) {
+		return true;
 	}
-	// Falls back to host OS preference when the project setting is unset.
+	// If the project settings override is not enabled, import
+	// S3TC/BPTC only when the host operating system needs it.
 	return OS::get_singleton()->get_preferred_texture_format() == OS::PREFERRED_TEXTURE_FORMAT_S3TC_BPTC;
 }
 

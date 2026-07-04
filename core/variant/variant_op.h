@@ -28,7 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef VARIANT_OP_H
+#define VARIANT_OP_H
 
 #include "variant.h"
 
@@ -316,7 +317,7 @@ public:
 		*VariantGetInternalPtr<Vector2i>::get_ptr(r_ret) = *VariantGetInternalPtr<Vector2i>::get_ptr(left) % *VariantGetInternalPtr<Vector2i>::get_ptr(right);
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
-		PtrToArg<Vector2i>::encode(PtrToArg<Vector2i>::convert(left) % PtrToArg<Vector2i>::convert(right), r_ret);
+		PtrToArg<Vector2i>::encode(PtrToArg<Vector2i>::convert(left) / PtrToArg<Vector2i>::convert(right), r_ret);
 	}
 	static Variant::Type get_return_type() { return GetTypeInfo<Vector2i>::VARIANT_TYPE; }
 };
@@ -907,7 +908,9 @@ template <typename S>
 class OperatorEvaluatorStringFormat<S, void> {
 public:
 	_FORCE_INLINE_ static String do_mod(const String &s, bool *r_valid) {
-		Array values = { Variant() };
+		Array values;
+		values.push_back(Variant());
+
 		String a = s.sprintf(values, r_valid);
 		if (r_valid) {
 			*r_valid = !*r_valid;
@@ -920,10 +923,7 @@ public:
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		bool valid = true;
 		String result = do_mod(*VariantGetInternalPtr<S>::get_ptr(left), &valid);
-		if (unlikely(!valid)) {
-			*VariantGetInternalPtr<String>::get_ptr(r_ret) = *VariantGetInternalPtr<S>::get_ptr(left);
-			ERR_FAIL_MSG(vformat("String formatting error: %s.", result));
-		}
+		ERR_FAIL_COND_MSG(!valid, result);
 		*VariantGetInternalPtr<String>::get_ptr(r_ret) = result;
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
@@ -948,10 +948,7 @@ public:
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		bool valid = true;
 		String result = do_mod(*VariantGetInternalPtr<S>::get_ptr(left), *VariantGetInternalPtr<Array>::get_ptr(right), &valid);
-		if (unlikely(!valid)) {
-			*VariantGetInternalPtr<String>::get_ptr(r_ret) = *VariantGetInternalPtr<S>::get_ptr(left);
-			ERR_FAIL_MSG(vformat("String formatting error: %s.", result));
-		}
+		ERR_FAIL_COND_MSG(!valid, result);
 		*VariantGetInternalPtr<String>::get_ptr(r_ret) = result;
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
@@ -964,7 +961,8 @@ template <typename S>
 class OperatorEvaluatorStringFormat<S, Object> {
 public:
 	_FORCE_INLINE_ static String do_mod(const String &s, const Object *p_object, bool *r_valid) {
-		Array values = { p_object };
+		Array values;
+		values.push_back(p_object);
 		String a = s.sprintf(values, r_valid);
 		if (r_valid) {
 			*r_valid = !*r_valid;
@@ -978,10 +976,7 @@ public:
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		bool valid = true;
 		String result = do_mod(*VariantGetInternalPtr<S>::get_ptr(left), right->get_validated_object(), &valid);
-		if (unlikely(!valid)) {
-			*VariantGetInternalPtr<String>::get_ptr(r_ret) = *VariantGetInternalPtr<S>::get_ptr(left);
-			ERR_FAIL_MSG(vformat("String formatting error: %s.", result));
-		}
+		ERR_FAIL_COND_MSG(!valid, result);
 		*VariantGetInternalPtr<String>::get_ptr(r_ret) = result;
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
@@ -994,7 +989,8 @@ template <typename S, typename T>
 class OperatorEvaluatorStringFormat {
 public:
 	_FORCE_INLINE_ static String do_mod(const String &s, const T &p_value, bool *r_valid) {
-		Array values = { p_value };
+		Array values;
+		values.push_back(p_value);
 		String a = s.sprintf(values, r_valid);
 		if (r_valid) {
 			*r_valid = !*r_valid;
@@ -1007,10 +1003,7 @@ public:
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		bool valid = true;
 		String result = do_mod(*VariantGetInternalPtr<S>::get_ptr(left), *VariantGetInternalPtr<T>::get_ptr(right), &valid);
-		if (unlikely(!valid)) {
-			*VariantGetInternalPtr<String>::get_ptr(r_ret) = *VariantGetInternalPtr<S>::get_ptr(left);
-			ERR_FAIL_MSG(vformat("String formatting error: %s.", result));
-		}
+		ERR_FAIL_COND_MSG(!valid, result);
 		*VariantGetInternalPtr<String>::get_ptr(r_ret) = result;
 	}
 	static void ptr_evaluate(const void *left, const void *right, void *r_ret) {
@@ -1499,10 +1492,7 @@ public:
 	}
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		Object *l = right->get_validated_object();
-		if (unlikely(!l)) {
-			*VariantGetInternalPtr<bool>::get_ptr(r_ret) = false;
-			ERR_FAIL_MSG("Invalid base object for 'in'.");
-		}
+		ERR_FAIL_NULL(l);
 		const String &a = *VariantGetInternalPtr<String>::get_ptr(left);
 
 		bool valid;
@@ -1536,10 +1526,7 @@ public:
 	}
 	static inline void validated_evaluate(const Variant *left, const Variant *right, Variant *r_ret) {
 		Object *l = right->get_validated_object();
-		if (unlikely(!l)) {
-			*VariantGetInternalPtr<bool>::get_ptr(r_ret) = false;
-			ERR_FAIL_MSG("Invalid base object for 'in'.");
-		}
+		ERR_FAIL_NULL(l);
 		const StringName &a = *VariantGetInternalPtr<StringName>::get_ptr(left);
 
 		bool valid;
@@ -1553,3 +1540,5 @@ public:
 	}
 	static Variant::Type get_return_type() { return Variant::BOOL; }
 };
+
+#endif // VARIANT_OP_H

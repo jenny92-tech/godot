@@ -132,7 +132,7 @@ void SpriteBase3D::draw_texture_rect(Ref<Texture2D> p_texture, Rect2 p_dst_rect,
 
 	// Properly setup UVs for impostor textures (AtlasTexture).
 	Ref<AtlasTexture> atlas_tex = p_texture;
-	if (atlas_tex.is_valid()) {
+	if (atlas_tex != nullptr) {
 		src_tsize[0] = atlas_tex->get_atlas()->get_width();
 		src_tsize[1] = atlas_tex->get_atlas()->get_height();
 	}
@@ -243,27 +243,6 @@ void SpriteBase3D::draw_texture_rect(Ref<Texture2D> p_texture, Rect2 p_dst_rect,
 		memcpy(&attribute_write_buffer[i * attrib_stride + mesh_surface_offsets[RS::ARRAY_COLOR]], v_color, 4);
 	}
 
-	switch (get_billboard_mode()) {
-		case StandardMaterial3D::BILLBOARD_ENABLED: {
-			real_t size_new = MAX(Math::abs(final_rect.position.x) * px_size, (final_rect.position.x + final_rect.size.x) * px_size);
-			size_new = MAX(size_new, MAX(Math::abs(final_rect.position.y) * px_size, (final_rect.position.y + final_rect.size.y) * px_size));
-			aabb_new.position = Vector3(-size_new, -size_new, -size_new);
-			aabb_new.size = Vector3(size_new * 2.0, size_new * 2.0, size_new * 2.0);
-		} break;
-		case StandardMaterial3D::BILLBOARD_FIXED_Y: {
-			real_t size_new = MAX(Math::abs(final_rect.position.x) * px_size, (final_rect.position.x + final_rect.size.x) * px_size);
-			if (ax == Vector3::AXIS_Y) {
-				size_new = MAX(size_new, MAX(Math::abs(final_rect.position.y) * px_size, (final_rect.position.y + final_rect.size.y) * px_size));
-			}
-			aabb_new.position.x = -size_new;
-			aabb_new.position.z = -size_new;
-			aabb_new.size.x = size_new * 2.0;
-			aabb_new.size.z = size_new * 2.0;
-		} break;
-		default:
-			break;
-	}
-
 	RID mesh_new = get_mesh();
 	RS::get_singleton()->mesh_surface_update_vertex_region(mesh_new, 0, 0, vertex_buffer);
 	RS::get_singleton()->mesh_surface_update_attribute_region(mesh_new, 0, 0, attribute_buffer);
@@ -297,7 +276,6 @@ void SpriteBase3D::draw_texture_rect(Ref<Texture2D> p_texture, Rect2 p_dst_rect,
 	}
 	if (last_texture != p_texture->get_rid()) {
 		RS::get_singleton()->material_set_param(get_material(), "texture_albedo", p_texture->get_rid());
-		RS::get_singleton()->material_set_param(get_material(), "albedo_texture_size", Vector2i(p_texture->get_width(), p_texture->get_height()));
 		last_texture = p_texture->get_rid();
 	}
 	if (get_alpha_cut_mode() == ALPHA_CUT_DISABLED) {
@@ -492,7 +470,7 @@ Ref<TriangleMesh> SpriteBase3D::generate_triangle_mesh() const {
 		facesw[j] = vtx;
 	}
 
-	triangle_mesh.instantiate();
+	triangle_mesh = Ref<TriangleMesh>(memnew(TriangleMesh));
 	triangle_mesh->create(faces);
 
 	return triangle_mesh;
@@ -964,9 +942,6 @@ Rect2 Sprite3D::get_item_rect() const {
 }
 
 void Sprite3D::_validate_property(PropertyInfo &p_property) const {
-	if (!Engine::get_singleton()->is_editor_hint()) {
-		return;
-	}
 	if (p_property.name == "frame") {
 		p_property.hint = PROPERTY_HINT_RANGE;
 		p_property.hint_string = "0," + itos(vframes * hframes - 1) + ",1";
@@ -1056,15 +1031,10 @@ void AnimatedSprite3D::_draw() {
 }
 
 void AnimatedSprite3D::_validate_property(PropertyInfo &p_property) const {
-	if (frames.is_null()) {
+	if (!frames.is_valid()) {
 		return;
 	}
-	if (!Engine::get_singleton()->is_editor_hint()) {
-		if (p_property.name == "frame" && playing) {
-			p_property.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY;
-		}
-		return;
-	}
+
 	if (p_property.name == "animation") {
 		List<StringName> names;
 		frames->get_animation_list(&names);
@@ -1116,7 +1086,7 @@ void AnimatedSprite3D::_validate_property(PropertyInfo &p_property) const {
 void AnimatedSprite3D::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_READY: {
-			if (!Engine::get_singleton()->is_editor_hint() && frames.is_valid() && frames->has_animation(autoplay)) {
+			if (!Engine::get_singleton()->is_editor_hint() && !frames.is_null() && frames->has_animation(autoplay)) {
 				play(autoplay);
 			}
 		} break;
@@ -1141,7 +1111,7 @@ void AnimatedSprite3D::_notification(int p_what) {
 				int fc = frames->get_frame_count(animation);
 
 				int last_frame = fc - 1;
-				if (!std::signbit(speed)) {
+				if (!signbit(speed)) {
 					// Forwards.
 					if (frame_progress >= 1.0) {
 						if (frame >= last_frame) {
@@ -1215,7 +1185,7 @@ void AnimatedSprite3D::set_sprite_frames(const Ref<SpriteFrames> &p_frames) {
 
 		List<StringName> al;
 		frames->get_animation_list(&al);
-		if (al.is_empty()) {
+		if (al.size() == 0) {
 			set_animation(StringName());
 			autoplay = String();
 		} else {
@@ -1239,7 +1209,7 @@ Ref<SpriteFrames> AnimatedSprite3D::get_sprite_frames() const {
 }
 
 void AnimatedSprite3D::set_frame(int p_frame) {
-	set_frame_and_progress(p_frame, std::signbit(get_playing_speed()) ? 1.0 : 0.0);
+	set_frame_and_progress(p_frame, signbit(get_playing_speed()) ? 1.0 : 0.0);
 }
 
 int AnimatedSprite3D::get_frame() const {
@@ -1354,7 +1324,7 @@ void AnimatedSprite3D::play(const StringName &p_name, float p_custom_scale, bool
 		name = animation;
 	}
 
-	ERR_FAIL_COND_MSG(frames.is_null(), vformat("There is no animation with name '%s'.", name));
+	ERR_FAIL_NULL_MSG(frames, vformat("There is no animation with name '%s'.", name));
 	ERR_FAIL_COND_MSG(!frames->get_animation_names().has(name), vformat("There is no animation with name '%s'.", name));
 
 	if (frames->get_frame_count(name) == 0) {
@@ -1376,7 +1346,7 @@ void AnimatedSprite3D::play(const StringName &p_name, float p_custom_scale, bool
 		emit_signal(SceneStringName(animation_changed));
 	} else {
 		int end_frame = MAX(0, frames->get_frame_count(animation) - 1);
-		bool is_backward = std::signbit(speed_scale * custom_speed_scale);
+		bool is_backward = signbit(speed_scale * custom_speed_scale);
 
 		if (p_from_end && is_backward && frame == 0 && frame_progress <= 0.0) {
 			set_frame_and_progress(end_frame, 1.0);
@@ -1432,7 +1402,7 @@ void AnimatedSprite3D::set_animation(const StringName &p_name) {
 
 	emit_signal(SceneStringName(animation_changed));
 
-	if (frames.is_null()) {
+	if (frames == nullptr) {
 		animation = StringName();
 		stop();
 		ERR_FAIL_MSG(vformat("There is no animation with name '%s'.", p_name));
@@ -1448,7 +1418,7 @@ void AnimatedSprite3D::set_animation(const StringName &p_name) {
 		ERR_FAIL_MSG(vformat("There is no animation with name '%s'.", p_name));
 	}
 
-	if (std::signbit(get_playing_speed())) {
+	if (signbit(get_playing_speed())) {
 		set_frame_and_progress(frame_count - 1, 1.0);
 	} else {
 		set_frame_and_progress(0, 0.0);

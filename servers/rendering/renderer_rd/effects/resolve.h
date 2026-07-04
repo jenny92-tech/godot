@@ -28,9 +28,14 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef RESOLVE_RD_H
+#define RESOLVE_RD_H
 
+#include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "servers/rendering/renderer_rd/shaders/effects/resolve.glsl.gen.h"
+#include "servers/rendering/renderer_scene_render.h"
+
+#include "servers/rendering_server.h"
 
 namespace RendererRD {
 
@@ -65,3 +70,5 @@ public:
 };
 
 } // namespace RendererRD
+
+#endif // RESOLVE_RD_H

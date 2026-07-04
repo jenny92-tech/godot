@@ -28,10 +28,13 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef MACHO_H
+#define MACHO_H
 
 // Mach-O binary object file format parser and editor.
 
+#include "core/crypto/crypto.h"
+#include "core/crypto/crypto_core.h"
 #include "core/io/file_access.h"
 #include "core/object/ref_counted.h"
 
@@ -111,8 +114,6 @@ public:
 		PLATFORM_TVOSSIMULATOR = 8,
 		PLATFORM_WATCHOSSIMULATOR = 9,
 		PLATFORM_DRIVERKIT = 10,
-		PLATFORM_VISIONOS = 11,
-		PLATFORM_VISIONOSSIMULATOR = 12,
 	};
 
 	struct LoadCommandHeader {
@@ -223,3 +224,5 @@ public:
 	uint64_t get_signature_size();
 	bool set_signature_size(uint64_t p_size);
 };
+
+#endif // MACHO_H

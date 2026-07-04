@@ -28,12 +28,13 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef GDSCRIPT_CACHE_H
+#define GDSCRIPT_CACHE_H
 
 #include "gdscript.h"
 
 #include "core/object/ref_counted.h"
-#include "core/os/safe_binary_mutex.h"
+#include "core/os/mutex.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/hash_set.h"
 
@@ -41,8 +42,6 @@ class GDScriptAnalyzer;
 class GDScriptParser;
 
 class GDScriptParserRef : public RefCounted {
-	GDSOFTCLASS(GDScriptParserRef, RefCounted);
-
 public:
 	enum Status {
 		EMPTY,
@@ -96,12 +95,7 @@ class GDScriptCache {
 
 	bool cleared = false;
 
-public:
-	static const int BINARY_MUTEX_TAG = 2;
-
-private:
-	static SafeBinaryMutex<BINARY_MUTEX_TAG> mutex;
-	friend SafeBinaryMutex<BINARY_MUTEX_TAG> &_get_gdscript_cache_mutex();
+	Mutex mutex;
 
 public:
 	static void move_script(const String &p_from, const String &p_to);
@@ -123,3 +117,5 @@ public:
 	GDScriptCache();
 	~GDScriptCache();
 };
+
+#endif // GDSCRIPT_CACHE_H

@@ -71,8 +71,15 @@ static constexpr int LINUX_KEY_DELETE = KEY_DELETE;
 #endif
 
 // Full SDL2 header(SDL_Init / SDL_CreateWindow / SDL_Event 等)。
-// SDL_VIDEODRIVER=dummy 时只用于 event/joystick,不调 GL/视频功能。
+// SDL_VIDEODRIVER=dummy 时只用于 event/joystick,不调 GL/视频功能;
+// 非 dummy(SDL-delegated GL 路径)时也用它建窗口 + GL context。
 #include <SDL2/SDL.h>
+
+// glad EGL 函数指针表加载器(定义在 godot thirdparty/glad,kms_egl_context.cpp
+// 也这么取)。SDL-delegated GL 路径里调它填 godot 的 eglGetProcAddress 指针,
+// 让 rasterizer_gles3 用 eglGetProcAddress 把 GL 函数加载进 SDL 的当前 context。
+// EGLDisplay 实质是 void*,这里用 void* 匹配 C linkage 签名,免 include EGL 头。
+extern "C" int gladLoaderLoadEGL(void *display);
 
 // ===================================================================
 // register / create
@@ -129,7 +136,105 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 		return;
 	}
 	const char *vd = SDL_GetCurrentVideoDriver();
-	poc_diag_fmt("DSDL2: SDL2 video driver = %s (expect 'dummy')", vd ? vd : "(null)");
+	poc_diag_fmt("DSDL2: SDL2 video driver = %s", vd ? vd : "(null)");
+
+	// ── SDL-delegated GL path ───────────────────────────────────────────
+	// 真 video driver(非 dummy)→ SDL 自管窗口 + GL context,我们只 SwapWindow。
+	// 自包含:成功就在这里 return,完全不进下面的自写 KMS 路径(TrimUI dummy 不受影响)。
+	use_sdl_gl = (vd != nullptr && String::utf8(vd) != "dummy");
+	if (use_sdl_gl) {
+#ifdef GLES3_ENABLED
+		poc_diag_fmt("DSDL2: SDL-delegated GL 模式 (video driver '%s') — SDL 管窗口+GL context", vd);
+
+		// unityloader(HK/黑神话)在同款 Mali 上验证过的属性:GLES profile + 3.x。
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+		SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+		SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+		SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+
+		// 0×0 + FULLSCREEN_DESKTOP = 取合成器/输出原生尺寸(weston 已 rotate-90)。
+		poc_diag("DSDL2: SDL_CreateWindow(OPENGL|FULLSCREEN_DESKTOP)");
+		window = SDL_CreateWindow("godot", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+				0, 0, SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN_DESKTOP);
+		if (window == nullptr) {
+			poc_diag_fmt("DSDL2: SDL_CreateWindow(OPENGL) FAILED: %s", SDL_GetError());
+			ERR_PRINT(vformat("DisplayServerSDL2: SDL_CreateWindow(OPENGL) failed: %s", SDL_GetError()));
+			SDL_Quit();
+			r_error = ERR_UNAVAILABLE;
+			return;
+		}
+
+		// GLES 3.2 → 3.1 → 3.0 逐级回退(libmali 普遍 3.x,版本因芯片而异)。
+		SDL_GLContext glc = SDL_GL_CreateContext(window);
+		if (glc == nullptr) {
+			poc_diag_fmt("DSDL2: GLES 3.2 context 失败 (%s),回退 3.1", SDL_GetError());
+			SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+			glc = SDL_GL_CreateContext(window);
+		}
+		if (glc == nullptr) {
+			poc_diag_fmt("DSDL2: GLES 3.1 context 失败 (%s),回退 3.0", SDL_GetError());
+			SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+			glc = SDL_GL_CreateContext(window);
+		}
+		if (glc == nullptr) {
+			poc_diag_fmt("DSDL2: SDL_GL_CreateContext FAILED: %s", SDL_GetError());
+			ERR_PRINT(vformat("DisplayServerSDL2: SDL_GL_CreateContext failed: %s", SDL_GetError()));
+			SDL_DestroyWindow(window);
+			window = nullptr;
+			SDL_Quit();
+			r_error = ERR_UNAVAILABLE;
+			return;
+		}
+		sdl_gl_context = (void *)glc;
+		SDL_GL_MakeCurrent(window, glc);
+
+		// 填 godot glad 的 eglGetProcAddress 指针表,使 rasterizer_gles3 的
+		// has_egl 分支(gladLoadGLES2 via eglGetProcAddress)命中,把 GL 加载进
+		// SDL 的当前 context。NO_DISPLAY 足够拿到全局 eglGetProcAddress。
+		poc_diag("DSDL2: gladLoaderLoadEGL(NO_DISPLAY) — 填 glad EGL 指针");
+		gladLoaderLoadEGL(nullptr);
+
+		SDL_GL_SetSwapInterval(vsync_mode == VSYNC_ENABLED ? 1 : 0);
+
+		int dw = 0, dh = 0;
+		SDL_GL_GetDrawableSize(window, &dw, &dh);
+		// wayland: 刚建窗合成器尚未 configure,GetDrawableSize 常返回 1×1(占位)。
+		// 把 ≤1 视为"尚未就绪",回落到 launcher 传入的 --resolution(=合成器逻辑尺寸)。
+		// 真正的尺寸会随首个 SDL_WINDOWEVENT_SIZE_CHANGED 到达,在事件处理里被接受。
+		window_size = (dw > 1 && dh > 1)
+				? Size2i(dw, dh)
+				: Size2i(p_resolution.width > 0 ? p_resolution.width : 1280,
+						  p_resolution.height > 0 ? p_resolution.height : 720);
+		panel_rotation = 0; // 旋转由 weston 负责,godot 不转
+		poc_diag_fmt("DSDL2: SDL-GL window %dx%d, swap=SDL_GL_SwapWindow", window_size.width, window_size.height);
+
+		window_mode = WINDOW_MODE_FULLSCREEN;
+		window_visible = true;
+
+		// 注册 GLES rasterizer 工厂(与 KMS 路径同,gles_over_gl=false)。
+		poc_diag("DSDL2: RasterizerGLES3::make_current(false)");
+		RasterizerGLES3::make_current(false);
+
+		show_window(MAIN_WINDOW_ID);
+		Input::get_singleton()->set_event_dispatch_function(_dispatch_input_events);
+		// 输入仍走 evdev 单一来源(见 _process_sdl_event 里 use_sdl_gl 的门控,
+		// 避免 SDL 事件 + evdev 双份)。
+		_scan_evdev();
+		poc_diag("DSDL2: ===== SDL-delegated GL CONSTRUCTOR COMPLETE =====");
+		print_verbose(vformat("DisplayServerSDL2: SDL-delegated GL ready (%s), %dx%d", vd, window_size.width, window_size.height));
+		return;
+#else
+		ERR_PRINT("DisplayServerSDL2: SDL-delegated GL 需要 GLES3_ENABLED");
+		SDL_Quit();
+		r_error = ERR_UNAVAILABLE;
+		return;
+#endif
+	}
 
 	poc_diag("DSDL2: SDL_CreateWindow(HIDDEN)");
 	window = SDL_CreateWindow("godot", 0, 0,
@@ -211,7 +316,14 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 				panel_rotation = v;
 			}
 		}
-		window_size = Size2i(panel_w, panel_h);
+		// On a 90°/270° panel the framebuffer stays physical (panel_w x panel_h),
+		// but godot's logical screen is the SWAPPED landscape size so the game renders
+		// landscape into the RT; RasterizerGLES3 rotates it onto the panel at blit time.
+		if (panel_rotation == 90 || panel_rotation == 270) {
+			window_size = Size2i(panel_h, panel_w);
+		} else {
+			window_size = Size2i(panel_w, panel_h);
+		}
 		poc_diag_fmt("DSDL2: panel %dx%d (DRM=%dx%d, env_w=%s env_h=%s env_r=%s) rotation=%d",
 				panel_w, panel_h, drm_w, drm_h,
 				env_w ? env_w : "<unset>",
@@ -292,6 +404,10 @@ DisplayServerSDL2::~DisplayServerSDL2() {
 		memdelete(kms_dev);
 		kms_dev = nullptr;
 	}
+	if (sdl_gl_context) {
+		SDL_GL_DeleteContext((SDL_GLContext)sdl_gl_context);
+		sdl_gl_context = nullptr;
+	}
 	if (window) {
 		SDL_DestroyWindow(window);
 		window = nullptr;
@@ -369,7 +485,9 @@ DisplayServer::WindowMode DisplayServerSDL2::window_get_mode(WindowID) const { r
 
 void DisplayServerSDL2::window_set_vsync_mode(VSyncMode p_vsync_mode, WindowID) {
 #ifdef GLES3_ENABLED
-	if (egl_ctx) {
+	if (use_sdl_gl) {
+		SDL_GL_SetSwapInterval(p_vsync_mode == VSYNC_ENABLED ? 1 : 0);
+	} else if (egl_ctx) {
 		egl_ctx->set_vsync(p_vsync_mode == VSYNC_ENABLED);
 	}
 #endif
@@ -405,6 +523,12 @@ bool DisplayServerSDL2::can_any_window_draw() const { return window_visible && w
 
 void DisplayServerSDL2::swap_buffers() {
 #ifdef GLES3_ENABLED
+	if (use_sdl_gl) {
+		if (window) {
+			SDL_GL_SwapWindow(window);
+		}
+		return;
+	}
 	if (egl_ctx) {
 		egl_ctx->swap_buffers();
 	}
@@ -641,10 +765,25 @@ void DisplayServerSDL2::_process_sdl_event(const SDL_Event &p_ev) {
 			if (p_ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
 					p_ev.window.event == SDL_WINDOWEVENT_RESIZED) {
 				Size2i sdl_payload(p_ev.window.data1, p_ev.window.data2);
-				if (sdl_payload != window_size) {
-					// Phantom — drop silently. Verbose log so a future
-					// debugger sees this happened without polluting
-					// stderr.
+				if (use_sdl_gl) {
+					// SDL-delegated (wayland/合成器): 合成器才是 surface 尺寸的权威。
+					// 真实尺寸常在 init 之后随首个 configure 到达(init 只看到 1×1 占位)。
+					// 接受任何 >1×1 的新尺寸,更新 window_size 并通知 godot 重设视口。
+					// 不能套用下面的"幻影过滤"——那会把唯一一次真 resize 也丢掉(→ 偏移/只剩一角)。
+					if (sdl_payload.width > 1 && sdl_payload.height > 1 && sdl_payload != window_size) {
+						window_size = sdl_payload;
+						print_verbose(vformat("DSDL2: SDL-GL accepted resize %dx%d", sdl_payload.width, sdl_payload.height));
+						if (rect_changed_callback.is_valid()) {
+							Variant r = Rect2i(window_position, window_size);
+							const Variant *a[1] = { &r };
+							Variant ret;
+							Callable::CallError err;
+							rect_changed_callback.callp(a, 1, ret, err);
+						}
+					}
+				} else if (sdl_payload != window_size) {
+					// dummy/KMS 路(TrimUI): SDL 在 EGL 初始化时发的假 resize —
+					// 真尺寸以 DRM 面板为准,丢弃。Verbose 记一笔便于排查。
 					print_verbose(vformat("DSDL2: dropped phantom SDL2 SIZE_CHANGED %dx%d (real %dx%d)",
 							sdl_payload.width, sdl_payload.height,
 							window_size.width, window_size.height));
@@ -666,6 +805,12 @@ void DisplayServerSDL2::_process_sdl_event(const SDL_Event &p_ev) {
 		// navigation (ui_accept etc.) never fires on handheld CFWs.
 		case SDL_KEYDOWN:
 		case SDL_KEYUP: {
+			// SDL-delegated GL 模式下 SDL 也会从合成器拿到键盘事件,而我们仍直读
+			// evdev(gptokeyb 的 uinput)→ 二者读同一来源会双份。evdev 作唯一来源,
+			// 这里丢掉 SDL 的键事件。(dummy 模式 SDL 不探键盘,本就走不到这。)
+			if (use_sdl_gl) {
+				break;
+			}
 			Ref<InputEventKey> k;
 			k.instantiate();
 			k->set_pressed(p_ev.type == SDL_KEYDOWN);
@@ -690,6 +835,10 @@ void DisplayServerSDL2::_process_sdl_event(const SDL_Event &p_ev) {
 		// dispatches InputEventJoypadButton for us.
 		case SDL_CONTROLLERBUTTONDOWN:
 		case SDL_CONTROLLERBUTTONUP: {
+			// evdev 作唯一手柄来源(见上 KEY 注释),SDL-delegated GL 模式丢 SDL 手柄事件。
+			if (use_sdl_gl) {
+				break;
+			}
 			JoyButton btn = _sdl_controller_button_to_godot(
 					(SDL_GameControllerButton)p_ev.cbutton.button);
 			print_verbose(vformat(
@@ -704,6 +853,9 @@ void DisplayServerSDL2::_process_sdl_event(const SDL_Event &p_ev) {
 
 		// Gamepad axis (analog sticks + triggers).
 		case SDL_CONTROLLERAXISMOTION: {
+			if (use_sdl_gl) {
+				break;
+			}
 			JoyAxis axis = _sdl_controller_axis_to_godot(
 					(SDL_GameControllerAxis)p_ev.caxis.axis);
 			if (axis != JoyAxis::INVALID) {

@@ -28,9 +28,11 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef ANIMATION_PLAYER_H
+#define ANIMATION_PLAYER_H
 
 #include "animation_mixer.h"
+#include "scene/2d/node_2d.h"
 #include "scene/resources/animation.h"
 
 class AnimationPlayer : public AnimationMixer {
@@ -50,7 +52,7 @@ public:
 #endif // DISABLE_DEPRECATED
 
 private:
-	AHashMap<StringName, StringName> animation_next_set; // For auto advance.
+	HashMap<StringName, StringName> animation_next_set; // For auto advance.
 
 	float speed_scale = 1.0;
 	double default_blend_time = 0.0;
@@ -66,20 +68,6 @@ private:
 		AnimationData *from = nullptr;
 		double pos = 0.0;
 		float speed_scale = 1.0;
-		double start_time = 0.0;
-		double end_time = 0.0;
-		double get_start_time() const {
-			if (from && (Animation::is_less_approx(start_time, 0) || Animation::is_greater_approx(start_time, from->animation->get_length()))) {
-				return 0;
-			}
-			return start_time;
-		}
-		double get_end_time() const {
-			if (from && (Animation::is_less_approx(end_time, 0) || Animation::is_greater_approx(end_time, from->animation->get_length()))) {
-				return from->animation->get_length();
-			}
-			return end_time;
-		}
 	};
 
 	struct Blend {
@@ -148,7 +136,7 @@ protected:
 	static void _bind_methods();
 
 	// Make animation instances.
-	virtual bool _blend_pre_process(double p_delta, int p_track_count, const AHashMap<NodePath, int> &p_track_map) override;
+	virtual bool _blend_pre_process(double p_delta, int p_track_count, const HashMap<NodePath, int> &p_track_map) override;
 	virtual void _blend_capture(double p_delta) override;
 	virtual void _blend_post_process() override;
 
@@ -188,16 +176,8 @@ public:
 	void set_auto_capture_ease_type(Tween::EaseType p_auto_capture_ease_type);
 	Tween::EaseType get_auto_capture_ease_type() const;
 
-#ifdef TOOLS_ENABLED
-	void get_argument_options(const StringName &p_function, int p_idx, List<String> *r_options) const override;
-#endif
-
 	void play(const StringName &p_name = StringName(), double p_custom_blend = -1, float p_custom_scale = 1.0, bool p_from_end = false);
-	void play_section_with_markers(const StringName &p_name = StringName(), const StringName &p_start_marker = StringName(), const StringName &p_end_marker = StringName(), double p_custom_blend = -1, float p_custom_scale = 1.0, bool p_from_end = false);
-	void play_section(const StringName &p_name = StringName(), double p_start_time = -1, double p_end_time = -1, double p_custom_blend = -1, float p_custom_scale = 1.0, bool p_from_end = false);
 	void play_backwards(const StringName &p_name = StringName(), double p_custom_blend = -1);
-	void play_section_with_markers_backwards(const StringName &p_name = StringName(), const StringName &p_start_marker = StringName(), const StringName &p_end_marker = StringName(), double p_custom_blend = -1);
-	void play_section_backwards(const StringName &p_name = StringName(), double p_start_time = -1, double p_end_time = -1, double p_custom_blend = -1);
 	void play_with_capture(const StringName &p_name = StringName(), double p_duration = -1.0, double p_custom_blend = -1, float p_custom_scale = 1.0, bool p_from_end = false, Tween::TransitionType p_trans_type = Tween::TRANS_LINEAR, Tween::EaseType p_ease_type = Tween::EASE_IN);
 	void queue(const StringName &p_name);
 	Vector<String> get_queue();
@@ -227,13 +207,9 @@ public:
 	double get_current_animation_position() const;
 	double get_current_animation_length() const;
 
-	void set_section_with_markers(const StringName &p_start_marker = StringName(), const StringName &p_end_marker = StringName());
-	void set_section(double p_start_time = -1, double p_end_time = -1);
-	void reset_section();
-
-	double get_section_start_time() const;
-	double get_section_end_time() const;
-	bool has_section() const;
+#ifdef TOOLS_ENABLED
+	void get_argument_options(const StringName &p_function, int p_idx, List<String> *r_options) const override;
+#endif
 
 	virtual void advance(double p_time) override;
 
@@ -245,3 +221,5 @@ public:
 VARIANT_ENUM_CAST(AnimationPlayer::AnimationProcessCallback);
 VARIANT_ENUM_CAST(AnimationPlayer::AnimationMethodCallMode);
 #endif // DISABLE_DEPRECATED
+
+#endif // ANIMATION_PLAYER_H

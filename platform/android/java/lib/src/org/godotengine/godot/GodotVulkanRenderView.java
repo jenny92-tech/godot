@@ -38,7 +38,7 @@ import android.annotation.SuppressLint;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.PixelFormat;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.SparseArray;
 import android.view.KeyEvent;
@@ -51,24 +51,23 @@ import androidx.annotation.Keep;
 import java.io.InputStream;
 
 class GodotVulkanRenderView extends VkSurfaceView implements GodotRenderView {
+	private final GodotHost host;
 	private final Godot godot;
 	private final GodotInputHandler mInputHandler;
 	private final VkRenderer mRenderer;
 	private final SparseArray<PointerIcon> customPointerIcons = new SparseArray<>();
 
-	public GodotVulkanRenderView(Godot godot, GodotInputHandler inputHandler, boolean shouldBeTranslucent) {
-		super(godot.getContext());
+	public GodotVulkanRenderView(GodotHost host, Godot godot) {
+		super(host.getActivity());
 
+		this.host = host;
 		this.godot = godot;
-		mInputHandler = inputHandler;
+		mInputHandler = new GodotInputHandler(this);
 		mRenderer = new VkRenderer();
-		setPointerIcon(PointerIcon.getSystemIcon(getContext(), PointerIcon.TYPE_DEFAULT));
-		setFocusableInTouchMode(true);
-		setClickable(false);
-
-		if (shouldBeTranslucent) {
-			this.getHolder().setFormat(PixelFormat.TRANSLUCENT);
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+			setPointerIcon(PointerIcon.getSystemIcon(getContext(), PointerIcon.TYPE_DEFAULT));
 		}
+		setFocusableInTouchMode(true);
 	}
 
 	@Override
@@ -79,6 +78,11 @@ class GodotVulkanRenderView extends VkSurfaceView implements GodotRenderView {
 	@Override
 	public SurfaceView getView() {
 		return this;
+	}
+
+	@Override
+	public void initInputDevices() {
+		mInputHandler.initInputDevices();
 	}
 
 	@Override
@@ -120,6 +124,11 @@ class GodotVulkanRenderView extends VkSurfaceView implements GodotRenderView {
 	}
 
 	@Override
+	public void onBackPressed() {
+		godot.onBackPressed();
+	}
+
+	@Override
 	public GodotInputHandler getInputHandler() {
 		return mInputHandler;
 	}
@@ -133,17 +142,17 @@ class GodotVulkanRenderView extends VkSurfaceView implements GodotRenderView {
 
 	@Override
 	public boolean onKeyUp(final int keyCode, KeyEvent event) {
-		return mInputHandler.onKeyUp(keyCode, event) || super.onKeyUp(keyCode, event);
+		return mInputHandler.onKeyUp(keyCode, event);
 	}
 
 	@Override
 	public boolean onKeyDown(final int keyCode, KeyEvent event) {
-		return mInputHandler.onKeyDown(keyCode, event) || super.onKeyDown(keyCode, event);
+		return mInputHandler.onKeyDown(keyCode, event);
 	}
 
 	@Override
 	public boolean onGenericMotionEvent(MotionEvent event) {
-		return mInputHandler.onGenericMotionEvent(event) || super.onGenericMotionEvent(event);
+		return mInputHandler.onGenericMotionEvent(event);
 	}
 
 	@Override
@@ -179,25 +188,27 @@ class GodotVulkanRenderView extends VkSurfaceView implements GodotRenderView {
 	@Keep
 	@Override
 	public void configurePointerIcon(int pointerType, String imagePath, float hotSpotX, float hotSpotY) {
-		try {
-			Bitmap bitmap = null;
-			if (!TextUtils.isEmpty(imagePath)) {
-				if (godot.getDirectoryAccessHandler().filesystemFileExists(imagePath)) {
-					// Try to load the bitmap from the file system
-					bitmap = BitmapFactory.decodeFile(imagePath);
-				} else if (godot.getDirectoryAccessHandler().assetsFileExists(imagePath)) {
-					// Try to load the bitmap from the assets directory
-					AssetManager am = getContext().getAssets();
-					InputStream imageInputStream = am.open(imagePath);
-					bitmap = BitmapFactory.decodeStream(imageInputStream);
+		if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+			try {
+				Bitmap bitmap = null;
+				if (!TextUtils.isEmpty(imagePath)) {
+					if (godot.getDirectoryAccessHandler().filesystemFileExists(imagePath)) {
+						// Try to load the bitmap from the file system
+						bitmap = BitmapFactory.decodeFile(imagePath);
+					} else if (godot.getDirectoryAccessHandler().assetsFileExists(imagePath)) {
+						// Try to load the bitmap from the assets directory
+						AssetManager am = getContext().getAssets();
+						InputStream imageInputStream = am.open(imagePath);
+						bitmap = BitmapFactory.decodeStream(imageInputStream);
+					}
 				}
-			}
 
-			PointerIcon customPointerIcon = PointerIcon.create(bitmap, hotSpotX, hotSpotY);
-			customPointerIcons.put(pointerType, customPointerIcon);
-		} catch (Exception e) {
-			// Reset the custom pointer icon
-			customPointerIcons.delete(pointerType);
+				PointerIcon customPointerIcon = PointerIcon.create(bitmap, hotSpotX, hotSpotY);
+				customPointerIcons.put(pointerType, customPointerIcon);
+			} catch (Exception e) {
+				// Reset the custom pointer icon
+				customPointerIcons.delete(pointerType);
+			}
 		}
 	}
 
@@ -207,15 +218,20 @@ class GodotVulkanRenderView extends VkSurfaceView implements GodotRenderView {
 	@Keep
 	@Override
 	public void setPointerIcon(int pointerType) {
-		PointerIcon pointerIcon = customPointerIcons.get(pointerType);
-		if (pointerIcon == null) {
-			pointerIcon = PointerIcon.getSystemIcon(getContext(), pointerType);
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+			PointerIcon pointerIcon = customPointerIcons.get(pointerType);
+			if (pointerIcon == null) {
+				pointerIcon = PointerIcon.getSystemIcon(getContext(), pointerType);
+			}
+			setPointerIcon(pointerIcon);
 		}
-		setPointerIcon(pointerIcon);
 	}
 
 	@Override
 	public PointerIcon onResolvePointerIcon(MotionEvent me, int pointerIndex) {
-		return getPointerIcon();
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+			return getPointerIcon();
+		}
+		return super.onResolvePointerIcon(me, pointerIndex);
 	}
 }

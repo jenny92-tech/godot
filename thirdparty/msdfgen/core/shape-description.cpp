@@ -1,11 +1,6 @@
 
-#ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
-#endif
-
 #include "shape-description.h"
-
-#include <cstdlib>
 
 namespace msdfgen {
 
@@ -30,25 +25,14 @@ int readCharS(const char **input) {
 }
 
 int readCoordF(FILE *input, Point2 &coord) {
-    return fscanf(input, "%lf , %lf", &coord.x, &coord.y);
+    return fscanf(input, "%lf,%lf", &coord.x, &coord.y);
 }
 
 int readCoordS(const char **input, Point2 &coord) {
-    char *end = NULL;
-    coord.x = strtod(*input, &end);
-    if (end <= *input)
-        return 0;
-    *input = end;
-    while (**input == ' ' || **input == '\t' || **input == '\n' || **input == '\r')
-        ++*input;
-    if (**input != ',')
-        return 1;
-    ++*input;
-    coord.y = strtod(*input, &end);
-    if (end <= *input)
-        return 1;
-    *input = end;
-    return 2;
+    int read = 0;
+    int result = sscanf(*input, "%lf,%lf%n", &coord.x, &coord.y, &read);
+    *input += read;
+    return result;
 }
 
 static bool writeCoord(FILE *output, Point2 coord) {

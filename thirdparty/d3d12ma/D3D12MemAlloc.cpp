@@ -33,11 +33,13 @@
     #include <shared_mutex>
 #endif
 
+/* GODOT start */
 #if !defined(_MSC_VER)
 #include <guiddef.h>
 
 #include <dxguids.h>
 #endif
+/* GODOT end */
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -8184,6 +8186,7 @@ HRESULT AllocatorPimpl::UpdateD3D12Budget()
 
 D3D12_RESOURCE_ALLOCATION_INFO AllocatorPimpl::GetResourceAllocationInfoNative(const D3D12_RESOURCE_DESC& resourceDesc) const
 {
+/* GODOT start */
 #if defined(_MSC_VER) || !defined(_WIN32)
     return m_Device->GetResourceAllocationInfo(0, 1, &resourceDesc);
 #else
@@ -8191,6 +8194,7 @@ D3D12_RESOURCE_ALLOCATION_INFO AllocatorPimpl::GetResourceAllocationInfoNative(c
     m_Device->GetResourceAllocationInfo(&ret, 0, 1, &resourceDesc);
     return ret;
 #endif
+/* GODOT end */
 }
 
 #ifdef __ID3D12Device8_INTERFACE_DEFINED__
@@ -8198,6 +8202,7 @@ D3D12_RESOURCE_ALLOCATION_INFO AllocatorPimpl::GetResourceAllocationInfoNative(c
 {
     D3D12MA_ASSERT(m_Device8 != NULL);
     D3D12_RESOURCE_ALLOCATION_INFO1 info1Unused;
+/* GODOT start */
 #if defined(_MSC_VER) || !defined(_WIN32)
     return m_Device8->GetResourceAllocationInfo2(0, 1, &resourceDesc, &info1Unused);
 #else
@@ -8205,6 +8210,7 @@ D3D12_RESOURCE_ALLOCATION_INFO AllocatorPimpl::GetResourceAllocationInfoNative(c
     m_Device8->GetResourceAllocationInfo2(&ret, 0, 1, &resourceDesc, &info1Unused);
     return ret;
 #endif
+/* GODOT end */
 }
 #endif // #ifdef __ID3D12Device8_INTERFACE_DEFINED__
 

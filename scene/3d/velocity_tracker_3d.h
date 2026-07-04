@@ -28,9 +28,10 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef VELOCITY_TRACKER_3D_H
+#define VELOCITY_TRACKER_3D_H
 
-#include "core/object/ref_counted.h"
+#include "scene/3d/node_3d.h"
 
 class VelocityTracker3D : public RefCounted {
 	struct PositionHistory {
@@ -54,3 +55,5 @@ public:
 
 	VelocityTracker3D();
 };
+
+#endif // VELOCITY_TRACKER_3D_H

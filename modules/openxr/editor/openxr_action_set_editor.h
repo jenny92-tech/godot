@@ -28,18 +28,18 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef OPENXR_ACTION_SET_EDITOR_H
+#define OPENXR_ACTION_SET_EDITOR_H
 
 #include "../action_map/openxr_action_map.h"
 #include "../action_map/openxr_action_set.h"
 #include "openxr_action_editor.h"
 
-class EditorSpinSlider;
-class BoxContainer;
-class Button;
-class LineEdit;
-class PanelContainer;
-class TextEdit;
+#include "scene/gui/box_container.h"
+#include "scene/gui/button.h"
+#include "scene/gui/line_edit.h"
+#include "scene/gui/panel_container.h"
+#include "scene/gui/text_edit.h"
 
 class OpenXRActionSetEditor : public HBoxContainer {
 	GDCLASS(OpenXRActionSetEditor, HBoxContainer);
@@ -57,7 +57,7 @@ private:
 	HBoxContainer *action_set_hb = nullptr;
 	LineEdit *action_set_name = nullptr;
 	LineEdit *action_set_localized_name = nullptr;
-	EditorSpinSlider *action_set_priority = nullptr;
+	TextEdit *action_set_priority = nullptr;
 	Button *add_action = nullptr;
 	Button *rem_action_set = nullptr;
 	VBoxContainer *actions_vb = nullptr;
@@ -69,7 +69,7 @@ private:
 	void _on_toggle_expand();
 	void _on_action_set_name_changed(const String p_new_text);
 	void _on_action_set_localized_name_changed(const String p_new_text);
-	void _on_action_set_priority_changed(const double p_new_value);
+	void _on_action_set_priority_changed(const String p_new_text);
 	void _on_add_action();
 	void _on_remove_action_set();
 
@@ -87,10 +87,12 @@ protected:
 	void _do_remove_action_editor(OpenXRActionEditor *p_action_editor);
 
 public:
-	Ref<OpenXRActionSet> get_action_set() { return action_set; }
+	Ref<OpenXRActionSet> get_action_set() { return action_set; };
 	void set_focus_on_entry();
 
 	void remove_all_actions();
 
 	OpenXRActionSetEditor(Ref<OpenXRActionMap> p_action_map, Ref<OpenXRActionSet> p_action_set);
 };
+
+#endif // OPENXR_ACTION_SET_EDITOR_H

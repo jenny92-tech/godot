@@ -11,10 +11,7 @@ readability.
 - Version: 1.1.3-5
 - License: LGPL-2.1+
 
-Patches:
-
-- `0001-musl-standard-poll.patch` (GH-71934)
-- `0002-freebsd-sys-endian.patch` (GH-100047)
+Patches in the `patches` directory should be re-applied after updates.
 
 
 ## dbus

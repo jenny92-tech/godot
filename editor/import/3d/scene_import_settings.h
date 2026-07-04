@@ -28,7 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef SCENE_IMPORT_SETTINGS_H
+#define SCENE_IMPORT_SETTINGS_H
 
 #include "editor/import/3d/resource_importer_scene.h"
 #include "scene/3d/camera_3d.h"
@@ -36,11 +37,13 @@
 #include "scene/3d/mesh_instance_3d.h"
 #include "scene/3d/skeleton_3d.h"
 #include "scene/gui/dialogs.h"
+#include "scene/gui/item_list.h"
 #include "scene/gui/menu_button.h"
 #include "scene/gui/option_button.h"
 #include "scene/gui/panel_container.h"
 #include "scene/gui/slider.h"
 #include "scene/gui/split_container.h"
+#include "scene/gui/subviewport_container.h"
 #include "scene/gui/tab_container.h"
 #include "scene/gui/tree.h"
 #include "scene/resources/3d/primitive_meshes.h"
@@ -106,12 +109,10 @@ class SceneImportSettingsDialog : public ConfirmationDialog {
 	HSlider *animation_slider = nullptr;
 	Button *animation_play_button = nullptr;
 	Button *animation_stop_button = nullptr;
-	Button *animation_toggle_skeleton_visibility = nullptr;
 	Animation::LoopMode animation_loop_mode = Animation::LOOP_NONE;
 	bool animation_pingpong = false;
 	bool previous_import_as_skeleton = false;
 	bool previous_rest_as_reset = false;
-	MeshInstance3D *bones_mesh_preview = nullptr;
 
 	Ref<StandardMaterial3D> collider_mat;
 
@@ -128,8 +129,8 @@ class SceneImportSettingsDialog : public ConfirmationDialog {
 		TreeItem *mesh_node = nullptr;
 		TreeItem *material_node = nullptr;
 
-		float cam_rot_x = -Math::PI / 4;
-		float cam_rot_y = -Math::PI / 4;
+		float cam_rot_x = -Math_PI / 4;
+		float cam_rot_y = -Math_PI / 4;
 		float cam_zoom = 1;
 
 		HashMap<StringName, Variant> settings;
@@ -143,8 +144,8 @@ class SceneImportSettingsDialog : public ConfirmationDialog {
 		TreeItem *scene_node = nullptr;
 		TreeItem *mesh_node = nullptr;
 
-		float cam_rot_x = -Math::PI / 4;
-		float cam_rot_y = -Math::PI / 4;
+		float cam_rot_x = -Math_PI / 4;
+		float cam_rot_y = -Math_PI / 4;
 		float cam_zoom = 1;
 		HashMap<StringName, Variant> settings;
 	};
@@ -164,8 +165,6 @@ class SceneImportSettingsDialog : public ConfirmationDialog {
 	};
 	HashMap<String, NodeData> node_map;
 
-	bool _get_current(const StringName &p_name, Variant &r_ret) const;
-	void _set_default(const StringName &p_name, const Variant &p_value);
 	void _fill_material(Tree *p_tree, const Ref<Material> &p_material, TreeItem *p_parent);
 	void _fill_mesh(Tree *p_tree, const Ref<Mesh> &p_mesh, TreeItem *p_parent);
 	void _fill_animation(Tree *p_tree, const Ref<Animation> &p_anim, const String &p_name, TreeItem *p_parent);
@@ -188,11 +187,9 @@ class SceneImportSettingsDialog : public ConfirmationDialog {
 	void _reset_animation(const String &p_animation_name = "");
 	void _animation_slider_value_changed(double p_value);
 	void _animation_finished(const StringName &p_name);
-	void _animation_update_skeleton_visibility();
 	void _material_tree_selected();
 	void _mesh_tree_selected();
 	void _scene_tree_selected();
-	void _skeleton_tree_entered(Skeleton3D *p_skeleton);
 	void _cleanup();
 	void _on_light_1_switch_pressed();
 	void _on_light_2_switch_pressed();
@@ -246,9 +243,11 @@ public:
 	bool is_editing_animation() const { return editing_animation; }
 	void request_generate_collider();
 	void update_view();
-	void open_settings(const String &p_path, const String &p_scene_import_type = "PackedScene");
+	void open_settings(const String &p_path, bool p_for_animation = false);
 	static SceneImportSettingsDialog *get_singleton();
 	Node *get_selected_node();
 	SceneImportSettingsDialog();
 	~SceneImportSettingsDialog();
 };
+
+#endif // SCENE_IMPORT_SETTINGS_H

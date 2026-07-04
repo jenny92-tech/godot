@@ -5,18 +5,6 @@ respective folder names. Use two empty lines to separate categories for
 readability.
 
 
-## accesskit
-
-- Upstream: https://github.com/AccessKit/accesskit-c
-- Version: 0.17.0 (f69571eca23151be07a41bf493ca48a2b44b6a8b, 2025)
-- License: MIT
-
-Files extracted from upstream source:
-
-- `accesskit.h`
-- `LICENSE-MIT`
-
-
 ## amd-fsr
 
 - Upstream: https://github.com/GPUOpen-Effects/FidelityFX-FSR
@@ -41,10 +29,7 @@ Files extracted from upstream source:
 - `shaders` folder from `src/ffx-fsr2-api` with `ffx_*.hlsl` files excluded
 - `LICENSE.txt`
 
-Patches:
-
-- `0001-build-fixes.patch` (GH-81197)
-- `0002-godot-fsr2-options.patch` (GH-81197)
+Apply `patches` to add the new options required by Godot and general compilation fixes.
 
 
 ## angle
@@ -62,7 +47,7 @@ Files extracted from upstream source:
 ## astcenc
 
 - Upstream: https://github.com/ARM-software/astc-encoder
-- Version: 5.3.0 (bf32abd05eccaf3042170b2a85cebdf0bfee5873, 2025)
+- Version: 4.8.0 (0d6c9047c5ad19640e2d60fdb8f11a16675e7938, 2024)
 - License: Apache 2.0
 
 Files extracted from upstream source:
@@ -74,22 +59,16 @@ Files extracted from upstream source:
 ## basis_universal
 
 - Upstream: https://github.com/BinomialLLC/basis_universal
-- Version: 1.60 (323239a6a5ffa57d6570cfc403be99156e33a8b0, 2025)
+- Version: 1.16.4 (900e40fb5d2502927360fe2f31762bdbb624455f, 2023)
 - License: Apache 2.0
 
 Files extracted from upstream source:
 
-- `encoder/` and `transcoder/` folders, with the following files removed from `encoder`:
-  `3rdparty/{qoi.h,tinydds.h,tinyexr.cpp,tinyexr.h}`
+- `encoder/` and `transcoder/` folders, minus `jpgd.{cpp,h}`
 - `LICENSE`
 
-Patches:
-
-- `0001-external-zstd-pr344.patch` (GH-73441)
-- `0002-external-tinyexr.patch` (GH-97582)
-- `0003-remove-tinydds-qoi.patch` (GH-97582)
-- `0004-ambiguous-calls.patch` (GH-103968)
-- `0005-msvc-include-ctype.patch` (GH-106155)
+Applied upstream PR https://github.com/BinomialLLC/basis_universal/pull/344 to
+fix build with our own copy of zstd (patch in `patches`).
 
 
 ## brotli
@@ -108,19 +87,14 @@ Files extracted from upstream source:
 ## certs
 
 - Upstream: Mozilla, via https://github.com/bagder/ca-bundle
-- Version: git (bcc414c5b5282f9321651bf71dc1e254ae87e3f8, 2025),
-  generated from mozilla-release changeset 60d4997d339bb7ac6d033819ac50dcad4b9be09d
+- Version: git (c5a419971b1bec220368c619aaafd0b818aa119f, 2024)
 - License: MPL 2.0
-
-Files extracted from upstream source:
-
-- `ca-bundle.crt` renamed to `ca-certificates.crt`
 
 
 ## clipper2
 
 - Upstream: https://github.com/AngusJohnson/Clipper2
-- Version: 1.5.4 (ef88ee97c0e759792e43a2b2d8072def6c9244e8, 2025)
+- Version: 1.3.0 (98db5662e8dd1808a5a7b50c5605a2289bb390e8, 2023)
 - License: BSL 1.0
 
 Files extracted from upstream source:
@@ -128,9 +102,8 @@ Files extracted from upstream source:
 - `CPP/Clipper2Lib/` folder (in root)
 - `LICENSE`
 
-Patches:
-
-- `0001-disable-exceptions.patch` (GH-80796)
+Apply the patches in the `patches/` folder when syncing on newer upstream
+commits.
 
 
 ## cvtt
@@ -144,9 +117,10 @@ Files extracted from upstream source:
 - All `.cpp` and `.h` files except the folders `MakeTables` and `etc2packer`
 - `LICENSE.txt`
 
-Patches:
-
-- `0001-revert-bc6h-reorg.patch` (GH-73715)
+Changes related to BC6H packing and unpacking made upstream in
+https://github.com/elasota/cvtt/commit/2e4b6b2747aec11f4cc6dd09ef43fa8ce769f6e2
+have been removed as they caused massive quality regressions. Apply the patches
+in the `patches/` folder when syncing on newer upstream commits.
 
 
 ## d3d12ma
@@ -161,9 +135,9 @@ Files extracted from upstream source:
 - `include/D3D12MemAlloc.h`
 - `LICENSE.txt`, `NOTICES.txt`
 
-Patches:
-
-- `0001-mingw-support.patch` (GH-83452)
+Important: Some files have Godot-made changes for use with MinGW.
+They are marked with `/* GODOT start */` and `/* GODOT end */`
+comments.
 
 
 ## directx_headers
@@ -178,16 +152,15 @@ Files extracted from upstream source:
 - `include/dxguids/*.h`
 - `LICENSE`
 
-Patches:
-
-- `0001-mingw-pragma.patch` (GH-83452)
-- `0002-win7-8-dynamic-load.patch` (GH-88496)
+Important: Some files have Godot-made changes for use with MinGW.
+They are marked with `/* GODOT start */` and `/* GODOT end */`
+comments.
 
 
 ## doctest
 
 - Upstream: https://github.com/onqtam/doctest
-- Version: 2.4.12 (1da23a3e8119ec5cce4f9388e91b065e20bf06f5, 2025)
+- Version: 2.4.11 (ae7a13539fb71f270b87eb2e874fbac80bc8dda2, 2023)
 - License: MIT
 
 Files extracted from upstream source:
@@ -195,15 +168,11 @@ Files extracted from upstream source:
 - `doctest/doctest.h` as `doctest.h`
 - `LICENSE.txt`
 
-Patches:
-
-- `0001-ciso646-version.patch` (GH-105913)
-
 
 ## embree
 
 - Upstream: https://github.com/embree/embree
-- Version: 4.4.0 (ff9381774dc99fea81a932ad276677aad6a3d4dd, 2025)
+- Version: 4.3.1 (daa8de0e714e18ad5e5c9841b67c1950d9c91c51, 2024)
 - License: Apache 2.0
 
 Files extracted from upstream:
@@ -213,16 +182,13 @@ Files extracted from upstream:
 - All config files listed in `modules/raycast/godot_update_embree.py`
 - `LICENSE.txt`
 
-Patches:
-
-- `0001-disable-exceptions.patch` (GH-48050)
-- `0002-godot-config.patch` (GH-88783)
-- `0003-emscripten-nthreads.patch` (GH-69799)
-- `0004-mingw-no-cpuidex.patch` (GH-92488)
-- `0005-mingw-llvm-arm64.patch` (GH-93364)
-
 The `modules/raycast/godot_update_embree.py` script can be used to pull the
-relevant files from the latest Embree release and apply patches automatically.
+relevant files from the latest Embree release and apply some automatic changes.
+
+Some changes have been made in order to remove exceptions and fix minor build errors.
+They are marked with `// -- GODOT start --` and `// -- GODOT end --`
+comments. Apply the patches in the `patches/` folder when syncing on newer upstream
+commits.
 
 
 ## enet
@@ -236,21 +202,23 @@ Files extracted from upstream source:
 - All `.c` files in the main directory (except `unix.c` and `win32.c`)
 - The `include/enet/` folder as `enet/` (except `unix.h` and `win32.h`)
 - `LICENSE` file
-- Added 3 files `enet_godot.cpp`, `enet/enet_godot.h`, and `enet/enet_godot_ext.h`,
-  providing ENet socket implementation using Godot classes, allowing IPv6 and DTLS.
 
-Patches:
+Important: `enet.h`, `host.c`, `protocol.c` have been slightly modified
+to be usable by Godot's socket implementation and allow IPv6 and DTLS.
+Apply the patches in the `patches/` folder when syncing on newer upstream
+commits.
 
-- `0001-godot-socket.patch` (GH-7985)
+Three files (`godot.cpp`, `enet/godot.h`, `enet/godot_ext.h`) have been added to
+provide ENet socket implementation using Godot classes.
 
-Important: Building against a system wide ENet is possible, but will limit its
-functionality to IPv4 only and no DTLS. We recommend against it.
+It is still possible to build against a system wide ENet but doing so will limit
+its functionality to IPv4 only.
 
 
 ## etcpak
 
 - Upstream: https://github.com/wolfpld/etcpak
-- Version: 2.0 (a43d6925bee49277945cf3e311e4a022ae0c2073, 2024)
+- Version: git (5380688660a3801aec4b25483366027fe0442d7b, 2024)
 - License: BSD-3-Clause
 
 Files extracted from upstream source:
@@ -260,13 +228,7 @@ Files extracted from upstream source:
   Dither.{cpp,hpp} ForceInline.hpp Math.hpp ProcessCommon.hpp ProcessRGB.{cpp,hpp}
   ProcessDxtc.{cpp,hpp} Tables.{cpp,hpp} Vector.hpp
   ```
-- The files `DecodeRGB.{cpp.hpp}` are based on the code from the original repository.
 - `AUTHORS.txt` and `LICENSE.txt`
-
-Patches:
-
-- `0001-remove-bc7enc.patch` (GH-101362)
-
 
 ## fonts
 
@@ -277,6 +239,10 @@ Patches:
 - `JetBrainsMono_Regular.woff2`:
   * Upstream: https://github.com/JetBrains/JetBrainsMono
   * Version: 2.304 (cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9, 2023)
+  * License: OFL-1.1
+- `NotoNaskhArabicUI*.woff2`:
+  * Upstream: https://github.com/notofonts/arabic
+  * Version: 2.014 (133ccaebf922ca080a7eef22998611ac3c242df9, 2022)
   * License: OFL-1.1
 - `NotoSans*.woff2`:
   * Upstream: https://github.com/notofonts/latin-greek-cyrillic
@@ -326,10 +292,6 @@ Patches:
   * Upstream: https://fonts.google.com/specimen/Open+Sans
   * Version: 1.10 (downloaded from Google Fonts in February 2021)
   * License: Apache 2.0
-- `Vazirmatn*.woff2`:
-  * Upstream: https://github.com/rastikerdar/vazirmatn
-  * Version: 33.003 (83629f877e8f084cc07b47030b5d3a0ff06c76ec, 2022)
-  * License: OFL-1.1
 
 All fonts are converted from the unhinted `.ttf` sources using the
 `https://github.com/google/woff2` tool.
@@ -341,7 +303,7 @@ for UI.
 ## freetype
 
 - Upstream: https://www.freetype.org
-- Version: 2.13.3 (42608f77f20749dd6ddc9e0536788eaad70ea4b5, 2024)
+- Version: 2.13.2 (920c5502cc3ddda88f6c7d85ee834ac611bb11cc, 2023)
 - License: FreeType License (BSD-like)
 
 Files extracted from upstream source:
@@ -372,12 +334,11 @@ Files generated from [upstream web instance](https://gen.glad.sh/):
 - `glx.c`
 - `glad/glx.h`
 
-See the permalinks in `glad/gl.h` and `glad/glx.h` to regenerate the files with
+See the permalinks in `glad/gl.h` and `glad/glx.h` to regenrate the files with
 a new version of the web instance.
 
-Patches:
-
-- `0001-enable-both-gl-and-gles.patch` (GH-72831)
+Some changes have been made in order to allow loading OpenGL and OpenGLES APIs at the same time.
+See the patches in the `patches` directory.
 
 
 ## glslang
@@ -399,11 +360,6 @@ Files extracted from upstream source:
 - `LICENSE.txt`
 - Unnecessary files like `CMakeLists.txt` or `updateGrammar` removed
 
-Patches:
-
-- `0001-apple-disable-absolute-paths.patch` (GH-92010)
-- `0002-gcc15-include-fix.patch` (GH-102022)
-
 
 ## graphite
 
@@ -418,25 +374,10 @@ Files extracted from upstream source:
 - `COPYING`
 
 
-## grisu2
-
-- Upstream: https://github.com/simdjson/simdjson/blob/master/src/to_chars.cpp
-- Version: git (4f4e81668ecb9d4d37fd5f59a1556d492507421d, 2023)
-- License: Apache and MIT
-
-Files extracted from upstream source:
-
-- The `src/to_chars.cpp` file renamed to `grisu2.h` and slightly modified.
-
-Patches:
-
-- `0001-godot-changes.patch` (GH-98750)
-
-
 ## harfbuzz
 
 - Upstream: https://github.com/harfbuzz/harfbuzz
-- Version: 11.3.2 (4e3df1c1383481ed5717603d5dd3453a04fb16ba, 2025)
+- Version: 8.5.0 (30485ee8c3d43c553afb9d78b9924cb71c8d2f19, 2024)
 - License: MIT
 
 Files extracted from upstream source:
@@ -444,39 +385,25 @@ Files extracted from upstream source:
 - `AUTHORS`, `COPYING`, `THANKS`
 - From the `src` folder, recursively:
   - All the `.cc`, `.h`, `.hh` files
-  - Except `main.cc`, `harfbuzz*.cc`, `failing-alloc.c`, `test*.cc`, `hb-wasm*.*`, `hb-harfrust.cc`, `wasm/*`, `ms-use/*`, `rust/*`
-
-
-## hidapi
-
-- Upstream: https://github.com/libsdl-org/SDL/tree/main/src/hidapi
-- Version: 0.14.0 (8d604353a53853fa56d1bdce0363535605ca868f, 2025)
-- License: BSD-3-Clause
-
-Files extracted from upstream source:
-
-- See `thirdparty/sdl/update-sdl.sh`
-
-The source code of this library is being bundled with SDL's source code files.
-The files of hidapi are stored in `thirdparty/sdl/hidapi/` folder.
+  - Except `main.cc`, `harfbuzz*.cc`, `failing-alloc.c`, `test*.cc`, `hb-wasm*.*`
 
 
 ## icu4c
 
 - Upstream: https://github.com/unicode-org/icu
-- Version: 77.1 (457157a92aa053e632cc7fcfd0e12f8a943b2d11, 2025)
+- Version: 75.1 (7750081bda4b3bc1768ae03849ec70f67ea10625, 2024)
 - License: Unicode
 
 Files extracted from upstream source:
 
 - The `common` folder
-- `scriptset.*`, `ucln_in.*`, `uspoof.cpp` and `uspoof_impl.*` from the `i18n` folder
+- `scriptset.*`, `ucln_in.*`, `uspoof.cpp"` and `uspoof_impl.cpp` from the `i18n` folder
 - `uspoof.h` from the `i18n/unicode` folder
 - `LICENSE`
 
 Files generated from upstream source:
 
-- The `icudt_godot.dat` built with the provided `godot_data.json` config file (see
+- The `icudt75l.dat` built with the provided `godot_data.json` config file (see
   https://github.com/unicode-org/icu/blob/master/docs/userguide/icu_data/buildtool.md
   for instructions).
 
@@ -486,19 +413,19 @@ Files generated from upstream source:
 3. Reconfigure ICU with custom data config:
    `ICU_DATA_FILTER_FILE={GODOT_SOURCE}/thirdparty/icu4c/godot_data.json ./runConfigureICU {PLATFORM} --with-data-packaging=common`
 4. Delete `data/out` folder and rebuild data: `cd data && rm -rf ./out && make`
-5. Copy `source/data/out/icudt{ICU_VERSION}l.dat` to the `{GODOT_SOURCE}/thirdparty/icu4c/icudt_godot.dat`
+5. Copy `source/data/out/icudt75l.dat` to the `{GODOT_SOURCE}/thirdparty/icu4c/icudt75l.dat`
 
 
-## jolt_physics
+## jpeg-compressor
 
-- Upstream: https://github.com/jrouwe/JoltPhysics
-- Version: 5.3.0 (0373ec0dd762e4bc2f6acdb08371ee84fa23c6db, 2025)
-- License: MIT
+- Upstream: https://github.com/richgel999/jpeg-compressor
+- Version: 2.00 (aeb7d3b463aa8228b87a28013c15ee50a7e6fcf3, 2020)
+- License: Public domain or MIT
 
 Files extracted from upstream source:
 
-- All files in `Jolt/`, except `Jolt/Jolt.cmake` and any files dependent on `ENABLE_OBJECT_STREAM`, as seen in `Jolt/Jolt.cmake`
-- `LICENSE`
+- `jpgd*.{c,h}`
+- `jpge*.{c,h}`
 
 
 ## libbacktrace
@@ -509,58 +436,28 @@ Files extracted from upstream source:
 
 Files extracted from upstream source:
 
-- `*.{c,h}` files for Windows platform, i.e. remove the following:
-  * `allocfail.c`, `instrumented_alloc.c`, `*test*.{c,h}`
-  * `elf.c`, `macho.c`, `mmap.c`, `mmapio.c`, `nounwind.c`, `unknown.c`, `xcoff.c`
+- `*.{c,h}` files for Windows platform
 - `LICENSE`
-
-Patches:
-
-- `0001-big-files-support.patch` (GH-100281)
-
-
-## libjpeg-turbo
-
-- Upstream: https://github.com/libjpeg-turbo/libjpeg-turbo
-- Version: 3.1.0 (20ade4dea9589515a69793e447a6c6220b464535, 2024)
-- License: BSD-3-Clause and IJG
-
-Files extracted from upstream source:
-
-- `src/*.{c,h}` except for:
-  * `cdjpeg.c cjpeg.c djpeg.c example.c jcdiffct.c jclhuff.c jclossls.c jcstest.c jddiffct.c jdlhuff.c jdlossls.c jlossls.h jpegtran.c rdbmp.c rdcolmap.c rdgif.c rdjpgcom.c rdppm.c rdswitch.c rdtarga.c strtest.c tjbench.c tjcomp.c tjdecomp.c tjtran.c tjunittest.c tjutil.c wrbmp.c wrgif.c wrjpgcom.c wrppm.c wrtarga.c`
-- `LICENSE.md`
-- `README.ijg`
-
-Patches:
-
-- `0001-cmake-generated-headers.patch` (GH-104347)
-- `0002-disable-16bitlossless.patch` (GH-104347)
-- `0003-remove-bmp-ppm-support.patch` (GH-104347)
 
 
 ## libktx
 
 - Upstream: https://github.com/KhronosGroup/KTX-Software
-- Version: 4.4.0 (beef80159525d9fb7abb8645ea85f4c4f6842e8f, 2025)
-- License: Apache 2.0
+- Version: 4.3.2 (91ace88675ac59a97e55d0378a6602a9ae6b98bd, 2024)
+- License: Apache-2.0
 
 Files extracted from upstream source:
 
 - `LICENSE.md`
-- `include/` minus `.clang-format`
-- `external/dfdutils/LICENSE.adoc` as `LICENSE.dfdutils.adoc` (in root)
-- `external/dfdutils/LICENSES/Apache-2.0.txt` as `Apache-2.0.txt` (in root)
-- `external/dfdutils/{KHR/,dfd.h,colourspaces.c,createdfd.c,interpretdfd.c,printdfd.c,queries.c,dfd2vk.inl,vk2dfd.*}`
+- `include/`
+- `lib/dfdutils/LICENSE.adoc` as `LICENSE.dfdutils.adoc` (in root)
+- `lib/dfdutils/LICENSES/Apache-2.0.txt` as `Apache-2.0.txt` (in root)
+- `lib/dfdutils/{KHR/,dfd.h,colourspaces.c,createdfd.c,interpretdfd.c,printdfd.c,queries.c,dfd2vk.inl,vk2dfd.*}`
 - `lib/{basis_sgd.h,formatsize.h,gl_format.h,ktxint.h,uthash.h,vk_format.h,vkformat_enum.h,checkheader.c,swap.c,hashlist.c,vkformat_check.c,vkformat_typesize.c,basis_transcode.cpp,miniz_wrapper.cpp,filestream.*,memstream.*,texture*}`
 - `other_include/KHR/`
 - `utils/unused.h`
 
-Patches:
-
-- `0001-external-basisu.patch` (GH-76572)
-- `0002-disable-astc-block-ext.patch` (GH-76572)
-- `0003-basisu-1.60.patch` (GH-103968)
+Some Godot-specific changes are applied via patches included in the `patches` folder.
 
 
 ## libogg
@@ -579,13 +476,14 @@ Files extracted from upstream source:
 ## libpng
 
 - Upstream: http://libpng.org/pub/png/libpng.html
-- Version: 1.6.48 (ea127968204cc5d10f3fc9250c306b9e8cbd9b80, 2025)
+- Version: 1.6.43 (ed217e3e601d8e462f7fd1e04bed43ac42212429, 2024)
 - License: libpng/zlib
 
 Files extracted from upstream source:
 
-- All `.c` and `.h` files of the main directory, apart from `example.c` and `pngtest.c`
-- `arm/`, `intel/`, `loongarch/`, and `powerpc/` folders, except `arm/filter_neon.S` and `.editorconfig` files
+- All `.c` and `.h` files of the main directory, apart from `example.c` and
+  `pngtest.c`
+- `arm/`, `intel/` and `powerpc/` folders
 - `scripts/pnglibconf.h.prebuilt` as `pnglibconf.h`
 - `LICENSE`
 
@@ -593,7 +491,7 @@ Files extracted from upstream source:
 ## libtheora
 
 - Upstream: https://www.theora.org
-- Version: 1.2.0 (8e4808736e9c181b971306cc3f05df9e61354004, 2025)
+- Version: git (7180717276af1ebc7da15c83162d6c5d6203aabf, 2020)
 - License: BSD-3-Clause
 
 Files extracted from upstream source:
@@ -619,7 +517,7 @@ Files extracted from upstream source:
 ## libwebp
 
 - Upstream: https://chromium.googlesource.com/webm/libwebp/
-- Version: 1.5.0 (a4d7a715337ded4451fec90ff8ce79728e04126c, 2024)
+- Version: 1.4.0 (845d5476a866141ba35ac133f856fa62f0b7445f, 2024)
 - License: BSD-3-Clause
 
 Files extracted from upstream source:
@@ -627,65 +525,46 @@ Files extracted from upstream source:
 - `src/` and `sharpyuv/` except from `.am`, `.rc` and `.in` files
 - `AUTHORS`, `COPYING`, `PATENTS`
 
-Patches:
-
-- `0001-msvc-node-debug-rename.patch`
-- `0002-msvc-arm64-fpstrict.patch`
-- `0003-clang-cl-sse2-sse41.patch`
-
-
-## linuxbsd_headers
-
-See `linuxbsd_headers/README.md`.
-
-
-## manifold
-
-- Upstream: https://github.com/elalish/manifold
-- Version: git (76208dc02b069d2be50ed2d8a9279ee5622fa5fd, 2025)
-- License: Apache 2.0
-
-File extracted from upstream source:
-
-- `src/` and `include/`, except from `CMakeLists.txt`, `cross_section.h` and `meshIO.{cpp,h}`
-- `AUTHORS`, `LICENSE`
+Patch `godot-node-debug-fix.patch` workarounds shadowing of Godot's Node class
+in the MSVC debugger.
 
 
 ## mbedtls
 
 - Upstream: https://github.com/Mbed-TLS/mbedtls
-- Version: 3.6.4 (c765c831e5c2a0971410692f92f7a81d6ec65ec2, 2025)
+- Version: 3.6.0 (2ca6c285a0dd3f33982dd57299012dacab1ff206, 2024)
 - License: Apache 2.0
 
 File extracted from upstream release tarball:
 
 - All `.h` from `include/mbedtls/` to `thirdparty/mbedtls/include/mbedtls/`
   and all `.h` from `include/psa/` to `thirdparty/mbedtls/include/psa/`
-- From `library/` to `thirdparty/mbedtls/library/`:
-  - All `.c` and `.h` files
-  - Except `bignum_mod.c`, `block_cipher.c`, `ecp_curves_new.c`, `lmots.c`,
-  `lms.c`, `bignum_core_invasive.h`
+- All `.c` and `.h` from `library/` to `thirdparty/mbedtls/library/` except
+  for the `psa_*.c` source files
 - The `LICENSE` file (edited to keep only the Apache 2.0 variant)
+- Applied the patch `no-flexible-arrays.diff` to fix Windows build (see
+  upstream GH-9020)
+- Applied the patch `msvc-redeclaration-bug.diff` to fix a compilation error
+  with some MSVC versions
 - Added 2 files `godot_core_mbedtls_platform.c` and `godot_core_mbedtls_config.h`
   providing configuration for light bundling with core
-- Added 2 files `godot_module_mbedtls_config.h` and `threading_alt.h`
-  to customize the build configuration when bundling the full library
-
-Patches:
-
-- `0001-msvc-2019-psa-redeclaration.patch` (GH-90535)
+- Added the file `godot_module_mbedtls_config.h` to customize the build
+  configuration when bundling the full library
 
 
 ## meshoptimizer
 
 - Upstream: https://github.com/zeux/meshoptimizer
-- Version: 0.24 (7b2d4f4c817aea55d74dcd65d9763ac2ca608026, 2025)
+- Version: 0.20 (c21d3be6ddf627f8ca852ba4b6db9903b0557858, 2023)
 - License: MIT
 
 Files extracted from upstream repository:
 
 - All files in `src/`
 - `LICENSE.md`
+
+A patch is included to modify the simplifier to report only distance error
+metrics instead of a combination of distance and attribute errors.
 
 
 ## mingw-std-threads
@@ -703,10 +582,8 @@ Files extracted from upstream repository:
 - `mingw.shared_mutex.h`
 - `mingw.thread.h`
 
-Patches:
-
-- `0001-disable-exceptions.patch` (GH-85039)
-- `0002-clang-std-replacements-leak.patch` (GH-85208)
+Once copied, apply `godot.patch` (needed because Godot is built without exceptions
+and to avoid std:: replacements leak in Clang builds).
 
 
 ## minimp3
@@ -721,27 +598,26 @@ Files extracted from upstream repository:
 - `minimp3_ex.h`
 - `LICENSE`
 
-Patches:
-
-- `0001-msvc-arm.patch` (GH-64921)
-- `0002-msvc-warnings.patch` (GH-66545)
+Some changes have been made in order to fix Windows on ARM build errors, and
+to solve some MSVC warnings. See the patches in the `patches` directory.
 
 
 ## miniupnpc
 
 - Upstream: https://github.com/miniupnp/miniupnp
-- Version: 2.3.3 (bf4215a7574f88aa55859db9db00e3ae58cf42d6, 2025)
+- Version: 2.2.7 (d4d5ec7d48c093b37b2ea5d7171ede21ce9d7ff2, 2024)
 - License: BSD-3-Clause
 
 Files extracted from upstream source:
 
-- `miniupnpc/src/` as `src/`
-- `miniupnpc/include/` as `include/miniupnpc/`
+- Copy `miniupnpc/src` and `miniupnpc/include` to `thirdparty/miniupnpc`
 - Remove the following test or sample files:
   `listdevices.c,minihttptestserver.c,miniupnpcmodule.c,upnpc.c,upnperrors.*,test*`
 - `LICENSE`
-- `src/miniupnpcstrings.h` was created manually for Godot (it is usually generated
-  by CMake). Bump the version number for miniupnpc in that file when upgrading.
+
+The only modified file is `src/miniupnpcstrings.h`, which was created for Godot
+(it is usually autogenerated by cmake). Bump the version number for miniupnpc in
+that file when upgrading.
 
 
 ## minizip
@@ -756,19 +632,19 @@ Files extracted from the upstream source:
   `{crypt.h,ioapi.{c,h},unzip.{c,h},zip.{c,h}}`
   `MiniZip64_info.txt`
 
-Patches:
-
-- `0001-godot-seek.patch` (GH-10428)
+Important: Some files have Godot-made changes for use in core/io.
+They are marked with `/* GODOT start */` and `/* GODOT end */`
+comments and a patch is provided in the `patches` folder.
 
 
 ## misc
 
 Collection of single-file libraries used in Godot components.
 
-- `bcdec.h`
-  * Upstream: https://github.com/iOrange/bcdec
-  * Version: git (3b29f8f44466c7d59852670f82f53905cf627d48, 2024)
-  * License: MIT
+- `clipper.{cpp,hpp}`
+  * Upstream: https://sourceforge.net/projects/polyclipping
+  * Version: 6.4.2 (2017) + Godot changes (added optional exceptions handling)
+  * License: BSL-1.0
 - `cubemap_coeffs.h`
   * Upstream: https://research.activision.com/publications/archives/fast-filtering-of-reflection-probes
     File coeffs_const_8.txt (retrieved April 2020)
@@ -777,27 +653,14 @@ Collection of single-file libraries used in Godot components.
   * Upstream: https://github.com/ariya/FastLZ
   * Version: 0.5.0 (4f20f54d46f5a6dd4fae4def134933369b7602d2, 2020)
   * License: MIT
-- `FastNoiseLite.h`
-  * Upstream: https://github.com/Auburn/FastNoiseLite
-  * Version: 1.1.0 (f7af54b56518aa659e1cf9fb103c0b6e36a833d9, 2023)
-  * License: MIT
-  * Patches:
-    - `FastNoiseLite-0001-namespace-warnings.patch` (GH-88526)
 - `ifaddrs-android.{cc,h}`
   * Upstream: https://chromium.googlesource.com/external/webrtc/stable/talk/+/master/base/ifaddrs-android.h
   * Version: git (5976650443d68ccfadf1dea24999ee459dd2819d, 2013)
   * License: BSD-3-Clause
-  * Patches:
-    - `ifaddrs-android-0001-complete-struct.patch` (GH-34101)
 - `mikktspace.{c,h}`
   * Upstream: https://archive.blender.org/wiki/index.php/Dev:Shading/Tangent_Space_Normal_Maps/
   * Version: 1.0 (2011)
   * License: zlib
-- `nvapi_minimal.h`
-  * Upstream: http://download.nvidia.com/XFree86/nvapi-open-source-sdk
-  * Version: R525
-  * License: MIT
-  * Modifications: Created from upstream `nvapi.h` by removing unnecessary code.
 - `ok_color.h`
   * Upstream: https://github.com/bottosson/bottosson.github.io/blob/master/misc/ok_color.h
   * Version: git (d69831edb90ffdcd08b7e64da3c5405acd48ad2c, 2022)
@@ -814,15 +677,13 @@ Collection of single-file libraries used in Godot components.
 - `polypartition.{cpp,h}`
   * Upstream: https://github.com/ivanfratric/polypartition (`src/polypartition.{cpp,h}`)
   * Version: git (7bdffb428b2b19ad1c43aa44c714dcc104177e84, 2021)
+  * Modifications: Change from STL to Godot types (see provided patch).
   * License: MIT
-  * Patches:
-    - `polypartition-0001-godot-types.patch` (2185c018f)
-    - `polypartition-0002-shadow-warning.patch` (GH-66808)
-- `qoa.{c,h}`
+- `qoa.h`
   * Upstream: https://github.com/phoboslab/qoa
-  * Version: git (ae07b57deb98127a5b40916cb57775823d7437d2, 2025)
+  * Version: git (5c2a86d615661f34636cf179abf4fa278d3257e0, 2024)
+  * Modifications: Inlined functions, patched uninitialized variables and untyped mallocs.
   * License: MIT
-  * Modifications: Added implementation through `qoa.c`.
 - `r128.{c,h}`
   * Upstream: https://github.com/fahickman/r128
   * Version: git (6fc177671c47640d5bb69af10cf4ee91050015a1, 2023)
@@ -831,12 +692,10 @@ Collection of single-file libraries used in Godot components.
   * Upstream: https://github.com/antirez/smaz
   * Version: git (2f625846a775501fb69456567409a8b12f10ea25, 2012)
   * License: BSD-3-Clause
-  * Modifications: License included in header.
-  * Patches:
-    - `smaz-0001-write-string-warning.patch` (GH-8572)
+  * Modifications: use `const char*` instead of `char*` for input string
 - `smolv.{cpp,h}`
   * Upstream: https://github.com/aras-p/smol-v
-  * Version: git (9dd54c379ac29fa148cb1b829bb939ba7381d8f4, 2024)
+  * Version: git (4b52c165c13763051a18e80ffbc2ee436314ceb2, 2020)
   * License: Public Domain or MIT
 - `stb_rect_pack.h`
   * Upstream: https://github.com/nothings/stb
@@ -851,7 +710,7 @@ Collection of single-file libraries used in Godot components.
 ## msdfgen
 
 - Upstream: https://github.com/Chlumsky/msdfgen
-- Version: 1.12.1 (6574da1310df433c97ca0fddcab7e463c31e58f8, 2025)
+- Version: 1.11 (f12d7ca00091a632a289865b85c3f2e0bfc6542d, 2023)
 - License: MIT
 
 Files extracted from the upstream source:
@@ -861,10 +720,35 @@ Files extracted from the upstream source:
 - `LICENSE.txt`
 
 
+## noise
+
+- Upstream: https://github.com/Auburn/FastNoiseLite
+- Version: 1.1.0 (f7af54b56518aa659e1cf9fb103c0b6e36a833d9, 2023)
+- License: MIT
+
+Files extracted from the upstream source:
+
+- `FastNoiseLite.h`
+- `LICENSE`
+
+Some custom changes were made to fix compiler warnings, and can be re-applied
+with the provided patch.
+
+
+## nvapi
+
+- Upstream: http://download.nvidia.com/XFree86/nvapi-open-source-sdk
+- Version: R525
+- License: MIT
+
+- `nvapi_minimal.h` was created by using `nvapi.h` from upstream and removing
+  unnecessary code.
+
+
 ## openxr
 
 - Upstream: https://github.com/KhronosGroup/OpenXR-SDK
-- Version: 1.1.49 (977f6675bc0057d5a54ed290cb5c71c699b1c0ab, 2025)
+- Version: 1.0.34 (288d3a7ebc1ad959f62d51da75baa3d27438c499, 2024)
 - License: Apache 2.0
 
 Files extracted from upstream source:
@@ -892,7 +776,7 @@ Exclude:
 ## pcre2
 
 - Upstream: http://www.pcre.org
-- Version: 10.45 (2dce7761b1831fd3f82a9c2bd5476259d945da4d, 2025)
+- Version: 10.43 (3864abdb713f78831dd12d898ab31bbb0fa630b6, 2024)
 - License: BSD-3-Clause
 
 Files extracted from upstream source:
@@ -902,8 +786,8 @@ Files extracted from upstream source:
 - `src/pcre2_jit_match.c`
 - `src/pcre2_jit_misc.c`
 - `src/pcre2_ucptables.c`
-- `deps/sljit/sljit_src`
-- `AUTHORS.md` and `LICENCE.md`
+- `src/sljit/`
+- `AUTHORS` and `LICENCE`
 
 
 ## recastnavigation
@@ -943,57 +827,6 @@ and solve conflicts and also enrich the feature set originally
 proposed by these libraries and better integrate them with Godot.
 
 
-## smaa
-
-- Upstream: https://github.com/iryoku/smaa
-- Version: git (71c806a838bdd7d517df19192a20f0c61b3ca29d, 2013)
-- License: MIT
-
-Files extracted from upstream source:
-
-- `LICENSE`
-- Textures generated using the Python scripts in the `Scripts` folder
-
-
-## sdl
-
-- Upstream: https://github.com/libsdl-org/SDL
-- Version: 3.2.14 (8d604353a53853fa56d1bdce0363535605ca868f, 2025)
-- License: Zlib
-
-Files extracted from upstream source:
-
-- See `thirdparty/sdl/update-sdl.sh`
-
-Patches:
-
-- `0001-remove-unnecessary-subsystems.patch` (GH-106218)
-- `0002-msvc-constants-fpstrict.patch` (GH-106218)
-- `0003-std-include.patch` (GH-108144)
-- `0004-errno-include.patch` (GH-108354)
-- `0005-fix-libudev-dbus.patch` (GH-108373)
-- `0006-fix-cs-environ.patch` (GH-109283)
-
-The SDL source code folder includes `hidapi` library inside of folder `thirdparty/sdl/hidapi/`.
-Its version and license is described in this file under `hidapi`.
-
-
-## spirv-cross
-
-- Upstream: https://github.com/KhronosGroup/SPIRV-Cross
-- Version: git (d7440cbc6c50332600fdf21c45e6a5df0b07e54c, 2025)
-- License: Apache 2.0
-
-Files extracted from upstream source:
-
-- All `.cpp`, `.hpp` and `.h` files, minus `main.cpp`, `spirv_cross_c.*`, `spirv_hlsl.*`, `spirv_cpp.*`
-- `include/` folder
-- `LICENSE` and `LICENSES/` folder, minus `CC-BY-4.0.txt`
-
-Versions of this SDK do not have to match the `vulkan` section, as this SDK is required
-to generate Metal source from Vulkan SPIR-V.
-
-
 ## spirv-reflect
 
 - Upstream: https://github.com/KhronosGroup/SPIRV-Reflect
@@ -1009,61 +842,59 @@ Files extracted from upstream source:
 - `include/` folder
 - `LICENSE`
 
-Patches:
-
-- `0001-specialization-constants.patch` (GH-50325)
-- `0002-zero-size-for-sc-sized-arrays.patch` (GH-94985)
-
-
-## swappy-frame-pacing
-
-- Upstream: https://android.googlesource.com/platform/frameworks/opt/gamesdk/ via https://github.com/godotengine/godot-swappy
-- Version: git (1198bb06b041e2df5d42cc5cf18fac81fcefa03f, 2025)
-- License: Apache 2.0
-
-Files extracted from upstream source:
-
-- `include/common/`
-- `include/swappy/{swappy_common.h,swappyVk.h}`
-- `LICENSE`
+Some downstream changes have been made and are identified by
+`// -- GODOT begin --` and `// -- GODOT end --` comments.
+They can be reapplied using the patches included in the `patches`
+folder.
 
 
-## thorvg
+## squish
 
-- Upstream: https://github.com/thorvg/thorvg
-- Version: 0.15.13 (c597365b99f27cb46e2a5ac2942da45bb73d5a55, 2025)
+- Upstream: https://sourceforge.net/projects/libsquish
+- Version: 1.15 (r104, 2017)
 - License: MIT
 
 Files extracted from upstream source:
 
-- See `thorvg/update-thorvg.sh` for extraction instructions.
-  Set the version number and run the script.
+- `LICENSE.txt`
+- All `.cpp`, `.h` and `.inl` files
 
-Patches:
-
-- `0001-revert-tvglines-bezier-precision.patch` (GH-96658)
-- `0002-use-heap-alloc.patch` (GH-109530)
+Some downstream changes have been made and are identified by
+`// -- GODOT begin --` and `// -- GODOT end --` comments.
+They can be reapplied using the patches included in the `patches`
+folder.
 
 
 ## tinyexr
 
 - Upstream: https://github.com/syoyo/tinyexr
-- Version: 1.0.12 (735ff73ce5959cf005eb99ce517c9bcecab89dfb, 2025)
+- Version: 1.0.8 (6c8742cc8145c8f629698cd8248900990946d6b1, 2024)
 - License: BSD-3-Clause
 
 Files extracted from upstream source:
 
 - `tinyexr.{cc,h}`
 
-Patches:
+The `tinyexr.cc` file was modified to include `zlib.h` which we provide,
+instead of `miniz.h` as an external dependency.
 
-- `0001-external-zlib.patch` (GH-55115)
+
+## thorvg
+
+- Upstream: https://github.com/thorvg/thorvg
+- Version: 0.14.2 (f6c4d8a94e0b2194fe911d6e19a550683055dd50, 2024)
+- License: MIT
+
+Files extracted from upstream source:
+
+See `thorvg/update-thorvg.sh` for extraction instructions. Set the version
+number and run the script.
 
 
 ## ufbx
 
 - Upstream: https://github.com/ufbx/ufbx
-- Version: 0.20.0 (a63ff0a47485328880b3300e7bcdf01413343a45, 2025)
+- Version: 0.14.0 (80ff790ab36507b99ec7e4ef55b9cfb076ce821b, 2024)
 - License: MIT
 
 Files extracted from upstream source:
@@ -1083,14 +914,10 @@ Files extracted from upstream source:
 - From `src/VHACD_Lib/`: `inc`, `public` and `src`
 - `LICENSE`
 
-Patches:
-
-- `0001-bullet-namespace.patch` (GH-27929)
-- `0002-fpermissive-fix.patch` (GH-27929)
-- `0003-fix-musl-build.patch` (GH-34250)
-- `0004-fix-msvc-arm-build.patch` (GH-34331)
-- `0005-fix-scale-calculation.patch` (GH-38506)
-- `0006-gcc13-include-fix.patch` (GH-77949)
+Some downstream changes have been made and are identified by
+`// -- GODOT start --` and `// -- GODOT end --` comments.
+They can be reapplied using the patches included in the `vhacd`
+folder.
 
 
 ## volk
@@ -1134,12 +961,7 @@ SDK release: https://github.com/KhronosGroup/Vulkan-Utility-Libraries/blob/main/
 Version: 3.1.0 (009ecd192c1289c7529bff248a16cfe896254816, 2024)
 `vk_mem_alloc.cpp` is a Godot file and should be preserved on updates.
 
-Patches:
-
-- `0001-VKEnumStringHelper-godot-vulkan.patch` (GH-97510)
-- `0002-VMA-godot-vulkan.patch` (GH-97510)
-- `0003-VMA-add-vmaCalculateLazilyAllocatedBytes.patch` (GH-99257)
-
+Patches in the `patches` directory should be re-applied after updates.
 
 
 ## wayland
@@ -1170,7 +992,6 @@ Files extracted from upstream source:
 - `staging/fractional-scale/fractional-scale-v1.xml`
 - `staging/xdg-activation/README`
 - `staging/xdg-activation/xdg-activation-v1.xml`
-- `staging/xdg-system-bell/xdg-system-bell-v1.xml`
 - `unstable/idle-inhibit/README`
 - `unstable/idle-inhibit/idle-inhibit-unstable-v1.xml`
 - `unstable/pointer-constraints/README`
@@ -1204,11 +1025,9 @@ File extracted from upstream release tarball:
   Contents might need tweaking for Godot, review diff
 - All `.c` and `.h` files from `lib/`
 - All `.h` in `lib/includes/wslay/` as `wslay/`
+- `wslay/wslay.h` has a small Godot addition to fix MSVC build
+  See `patches/msvcfix.diff`
 - `COPYING`
-
-Patches:
-
-- `0001-msvc-build-fix.patch` (GH-30263)
 
 
 ## xatlas
@@ -1231,14 +1050,14 @@ Files extracted from upstream source:
 
 Files extracted from upstream source:
 
-- All `.c` and `.h` files, except `gz*.c` and `infback.c`
+- All `.c` and `.h` files, minus `infback.c`
 - `LICENSE`
 
 
 ## zstd
 
 - Upstream: https://github.com/facebook/zstd
-- Version: 1.5.7 (f8745da6ff1ad1e7bab384bd1f9d742439278e99, 2025)
+- Version: 1.5.6 (794ea1b0afca0f020f4e57b6732332231fb23c70, 2024)
 - License: BSD-3-Clause
 
 Files extracted from upstream source:

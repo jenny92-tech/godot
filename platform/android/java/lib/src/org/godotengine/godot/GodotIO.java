@@ -30,13 +30,13 @@
 
 package org.godotengine.godot;
 
-import org.godotengine.godot.error.Error;
 import org.godotengine.godot.input.GodotEditText;
 
 import android.app.Activity;
-import android.content.Context;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
@@ -47,14 +47,9 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
 import android.view.DisplayCutout;
-import android.view.Surface;
-import android.view.View;
 import android.view.WindowInsets;
-import android.view.WindowManager;
 
 import androidx.core.content.FileProvider;
-import androidx.core.graphics.Insets;
-import androidx.core.view.WindowInsetsCompat;
 
 import java.io.File;
 import java.util.List;
@@ -65,8 +60,7 @@ import java.util.Locale;
 public class GodotIO {
 	private static final String TAG = GodotIO.class.getSimpleName();
 
-	private final Godot godot;
-
+	private final Activity activity;
 	private final String uniqueId;
 	GodotEditText edit;
 
@@ -78,9 +72,9 @@ public class GodotIO {
 	final int SCREEN_SENSOR_PORTRAIT = 5;
 	final int SCREEN_SENSOR = 6;
 
-	GodotIO(Godot godot) {
-		this.godot = godot;
-		String androidId = Settings.Secure.getString(godot.getContext().getContentResolver(),
+	GodotIO(Activity p_activity) {
+		activity = p_activity;
+		String androidId = Settings.Secure.getString(activity.getContentResolver(),
 				Settings.Secure.ANDROID_ID);
 		if (androidId == null) {
 			androidId = "";
@@ -89,22 +83,12 @@ public class GodotIO {
 		uniqueId = androidId;
 	}
 
-	private Context getContext() {
-		Context context = godot.getActivity();
-		if (context == null) {
-			context = godot.getContext();
-		}
-		return context;
-	}
-
 	/////////////////////////
 	// MISCELLANEOUS OS IO
 	/////////////////////////
 
 	public int openURI(String uriString) {
 		try {
-			Context context = getContext();
-
 			Uri dataUri;
 			String dataType = "";
 			boolean grantReadUriPermission = false;
@@ -118,14 +102,14 @@ public class GodotIO {
 				}
 
 				File targetFile = new File(filePath);
-				dataUri = FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", targetFile);
-				dataType = context.getContentResolver().getType(dataUri);
+				dataUri = FileProvider.getUriForFile(activity, activity.getPackageName() + ".fileprovider", targetFile);
+				dataType = activity.getContentResolver().getType(dataUri);
 			} else {
 				dataUri = Uri.parse(uriString);
 			}
 
 			Intent intent = new Intent();
-			intent.setAction(Intent.ACTION_VIEW).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+			intent.setAction(Intent.ACTION_VIEW);
 			if (TextUtils.isEmpty(dataType)) {
 				intent.setData(dataUri);
 			} else {
@@ -135,32 +119,20 @@ public class GodotIO {
 				intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 			}
 
-			context.startActivity(intent);
-			return Error.OK.toNativeValue();
+			activity.startActivity(intent);
+			return 0;
 		} catch (Exception e) {
 			Log.e(TAG, "Unable to open uri " + uriString, e);
-			return Error.FAILED.toNativeValue();
+			return 1;
 		}
 	}
 
 	public String getCacheDir() {
-		return getContext().getCacheDir().getAbsolutePath();
-	}
-
-	public String getTempDir() {
-		File tempDir = new File(getCacheDir() + "/tmp");
-
-		if (!tempDir.exists()) {
-			if (!tempDir.mkdirs()) {
-				Log.e(TAG, "Unable to create temp dir");
-			}
-		}
-
-		return tempDir.getAbsolutePath();
+		return activity.getCacheDir().getAbsolutePath();
 	}
 
 	public String getDataDir() {
-		return getContext().getFilesDir().getAbsolutePath();
+		return activity.getFilesDir().getAbsolutePath();
 	}
 
 	public String getLocale() {
@@ -172,14 +144,14 @@ public class GodotIO {
 	}
 
 	public int getScreenDPI() {
-		return getContext().getResources().getDisplayMetrics().densityDpi;
+		return activity.getResources().getDisplayMetrics().densityDpi;
 	}
 
 	/**
 	 * Returns bucketized density values.
 	 */
 	public float getScaledDensity() {
-		int densityDpi = getContext().getResources().getDisplayMetrics().densityDpi;
+		int densityDpi = activity.getResources().getDisplayMetrics().densityDpi;
 		float selectedScaledDensity;
 		if (densityDpi >= DisplayMetrics.DENSITY_XXXHIGH) {
 			selectedScaledDensity = 4.0f;
@@ -198,15 +170,7 @@ public class GodotIO {
 	}
 
 	public double getScreenRefreshRate(double fallback) {
-		Activity activity = godot.getActivity();
-
-		Display display = null;
-		if (activity != null) {
-			display = activity.getWindowManager().getDefaultDisplay();
-		} else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-			display = godot.getContext().getDisplay();
-		}
-
+		Display display = activity.getWindowManager().getDefaultDisplay();
 		if (display != null) {
 			return display.getRefreshRate();
 		}
@@ -215,62 +179,30 @@ public class GodotIO {
 
 	public int[] getDisplaySafeArea() {
 		Rect rect = new Rect();
-		int[] result = new int[4];
+		activity.getWindow().getDecorView().getWindowVisibleDisplayFrame(rect);
 
-		View topView = null;
-		if (godot.getActivity() != null) {
-			topView = godot.getActivity().getWindow().getDecorView();
-		} else if (godot.getRenderView() != null) {
-			topView = godot.getRenderView().getView();
-		}
-
-		if (topView != null) {
-			int insetTypes;
-			if (godot.isInImmersiveMode()) {
-				insetTypes = WindowInsetsCompat.Type.displayCutout();
-			} else {
-				insetTypes = WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout();
-			}
-
-			if (topView.getRootWindowInsets() != null) {
-				WindowInsetsCompat insetsCompat = WindowInsetsCompat.toWindowInsetsCompat(topView.getRootWindowInsets(), topView);
-				Insets insets = insetsCompat.getInsets(insetTypes);
-
-				if (godot.isInEdgeToEdgeMode() || godot.isInImmersiveMode()) {
-					result[0] = insets.left;
-					result[1] = insets.top;
-				} else {
-					// The top and left padding (if required) is already applied.
-					result[0] = 0;
-					result[1] = 0;
-				}
-				result[2] = topView.getWidth() - insets.right - insets.left;
-				result[3] = topView.getHeight() - insets.bottom - insets.top;
+		int[] result = { rect.left, rect.top, rect.right, rect.bottom };
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+			WindowInsets insets = activity.getWindow().getDecorView().getRootWindowInsets();
+			DisplayCutout cutout = insets.getDisplayCutout();
+			if (cutout != null) {
+				int insetLeft = cutout.getSafeInsetLeft();
+				int insetTop = cutout.getSafeInsetTop();
+				result[0] = insetLeft;
+				result[1] = insetTop;
+				result[2] -= insetLeft + cutout.getSafeInsetRight();
+				result[3] -= insetTop + cutout.getSafeInsetBottom();
 			}
 		}
-
 		return result;
 	}
 
 	public int[] getDisplayCutouts() {
-		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P)
 			return new int[0];
-		}
-
-		View topView = null;
-		if (godot.getActivity() != null) {
-			topView = godot.getActivity().getWindow().getDecorView();
-		} else if (godot.getRenderView() != null) {
-			topView = godot.getRenderView().getView();
-		}
-
-		if (topView == null) {
+		DisplayCutout cutout = activity.getWindow().getDecorView().getRootWindowInsets().getDisplayCutout();
+		if (cutout == null)
 			return new int[0];
-		}
-		DisplayCutout cutout = topView.getRootWindowInsets().getDisplayCutout();
-		if (cutout == null) {
-			return new int[0];
-		}
 		List<Rect> rects = cutout.getBoundingRects();
 		int cutouts = rects.size();
 		int[] result = new int[cutouts * 4];
@@ -284,18 +216,13 @@ public class GodotIO {
 		return result;
 	}
 
-	public boolean hasHardwareKeyboard() {
-		if (edit != null) {
-			return edit.hasHardwareKeyboard();
-		} else {
-			return false;
-		}
-	}
-
 	public void showKeyboard(String p_existing_text, int p_type, int p_max_input_length, int p_cursor_start, int p_cursor_end) {
 		if (edit != null) {
 			edit.showKeyboard(p_existing_text, GodotEditText.VirtualKeyboardType.values()[p_type], p_max_input_length, p_cursor_start, p_cursor_end);
 		}
+
+		//InputMethodManager inputMgr = (InputMethodManager)activity.getSystemService(Context.INPUT_METHOD_SERVICE);
+		//inputMgr.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0);
 	}
 
 	public void hideKeyboard() {
@@ -304,11 +231,6 @@ public class GodotIO {
 	}
 
 	public void setScreenOrientation(int p_orientation) {
-		final Activity activity = godot.getActivity();
-		if (activity == null) {
-			return;
-		}
-
 		switch (p_orientation) {
 			case SCREEN_LANDSCAPE: {
 				activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
@@ -335,11 +257,6 @@ public class GodotIO {
 	}
 
 	public int getScreenOrientation() {
-		final Activity activity = godot.getActivity();
-		if (activity == null) {
-			return -1;
-		}
-
 		int orientation = activity.getRequestedOrientation();
 		switch (orientation) {
 			case ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE:
@@ -368,29 +285,6 @@ public class GodotIO {
 			default:
 				return -1;
 		}
-	}
-
-	public int getDisplayRotation() {
-		Activity activity = godot.getActivity();
-
-		Display display = null;
-		if (activity != null) {
-			display = activity.getWindowManager().getDefaultDisplay();
-		} else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-			display = godot.getContext().getDisplay();
-		}
-
-		if (display != null) {
-			int rotation = display.getRotation();
-			if (rotation == Surface.ROTATION_90) {
-				return 90;
-			} else if (rotation == Surface.ROTATION_180) {
-				return 180;
-			} else if (rotation == Surface.ROTATION_270) {
-				return 270;
-			}
-		}
-		return 0;
 	}
 
 	public void setEdit(GodotEditText _edit) {
@@ -453,7 +347,7 @@ public class GodotIO {
 				return Environment.getExternalStoragePublicDirectory(what).getAbsolutePath();
 			}
 		} else {
-			return getContext().getExternalFilesDir(what).getAbsolutePath();
+			return activity.getExternalFilesDir(what).getAbsolutePath();
 		}
 	}
 

@@ -14,6 +14,7 @@
 #include <cstring>                    // memcpy
 #include <cerrno>                     // errno
 
+#include <csignal>
 #include <fcntl.h>
 #include <poll.h>
 #include <unistd.h>
@@ -21,6 +22,35 @@
 #include <gbm.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
+
+// ── Crash/exit DRM restore ───────────────────────────────────────────────
+// On the KMS-direct path godot is the DRM master driving the panel. If it
+// crashes (SIGSEGV/SIGABRT/SIGBUS) or is killed (SIGTERM/SIGINT), the normal
+// finalize() never runs: the VOP keeps scanning out a GBM buffer whose memory
+// is freed as the process dies → on RK3566 the kernel watchdog REBOOTS the
+// whole device. We arm a signal handler that restores the panel's original
+// CRTC first, so a crash just exits (no reboot). POD statics only — the handler
+// must not touch C++ objects or allocate.
+static int g_kms_restore_fd = -1;
+static uint32_t g_kms_restore_crtc_id = 0;
+static uint32_t g_kms_restore_buffer_id = 0;
+static uint32_t g_kms_restore_connector_id = 0;
+static int g_kms_restore_x = 0;
+static int g_kms_restore_y = 0;
+static drmModeModeInfo g_kms_restore_mode = {};
+static volatile sig_atomic_t g_kms_restore_armed = 0;
+
+static void _kms_crash_restore(int sig) {
+	if (g_kms_restore_armed && g_kms_restore_fd >= 0) {
+		g_kms_restore_armed = 0; // avoid re-entry
+		drmModeSetCrtc(g_kms_restore_fd, g_kms_restore_crtc_id, g_kms_restore_buffer_id,
+				g_kms_restore_x, g_kms_restore_y, &g_kms_restore_connector_id, 1, &g_kms_restore_mode);
+	}
+	// Re-raise with the default handler so the process actually dies (core dump
+	// for SIGSEGV/SIGABRT, normal termination for SIGTERM/SIGINT).
+	signal(sig, SIG_DFL);
+	raise(sig);
+}
 
 // ===================================================================
 // 找一个 connected connector + 它的 encoder + CRTC + 一个 mode
@@ -100,6 +130,32 @@ Error KMSGBMDevice::_pick_connector_crtc_mode(drmModeRes *resources) {
 
 	// 备份当前 CRTC 状态(以便退出 restore)
 	original_crtc = drmModeGetCrtc(drm_fd, crtc_id);
+
+	// Arm the crash/exit DRM-restore signal handler (see top of file). Without
+	// this a godot crash on the KMS-direct path reboots the whole device.
+	if (original_crtc) {
+		g_kms_restore_fd = drm_fd;
+		g_kms_restore_crtc_id = original_crtc->crtc_id;
+		g_kms_restore_buffer_id = original_crtc->buffer_id;
+		g_kms_restore_x = original_crtc->x;
+		g_kms_restore_y = original_crtc->y;
+		g_kms_restore_mode = original_crtc->mode;
+		g_kms_restore_connector_id = connector_id;
+		g_kms_restore_armed = 1;
+
+		struct sigaction sa;
+		memset(&sa, 0, sizeof(sa));
+		sa.sa_handler = _kms_crash_restore;
+		sigemptyset(&sa.sa_mask);
+		sa.sa_flags = 0;
+		// Only the true CRASH signals — leave SIGTERM/SIGINT to godot's own clean
+		// quit path (which runs finalize() → restores the CRTC anyway).
+		sigaction(SIGSEGV, &sa, nullptr);
+		sigaction(SIGABRT, &sa, nullptr);
+		sigaction(SIGBUS, &sa, nullptr);
+		sigaction(SIGFPE, &sa, nullptr);
+		sigaction(SIGILL, &sa, nullptr);
+	}
 
 	print_verbose(vformat("KMSGBMDevice: connector %d, CRTC %d, mode %dx%d@%d", connector_id, crtc_id, mode_width, mode_height, mode_refresh));
 	return OK;
@@ -264,6 +320,15 @@ Error KMSGBMDevice::page_flip() {
 // finalize:还原 CRTC + 释放 GBM/DRM 资源
 // ===================================================================
 void KMSGBMDevice::finalize() {
+	// Clean exit: disarm the crash handler first (it would otherwise restore a
+	// now-freed CRTC) and reset signals to default.
+	g_kms_restore_armed = 0;
+	signal(SIGSEGV, SIG_DFL);
+	signal(SIGABRT, SIG_DFL);
+	signal(SIGBUS, SIG_DFL);
+	signal(SIGFPE, SIG_DFL);
+	signal(SIGILL, SIG_DFL);
+
 	// 还原 CRTC(让 MainUI 等系统压回去能直接接管)
 	if (original_crtc && drm_fd >= 0) {
 		drmModeSetCrtc(drm_fd, original_crtc->crtc_id, original_crtc->buffer_id,

@@ -28,7 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef SUBVIEWPORT_CONTAINER_H
+#define SUBVIEWPORT_CONTAINER_H
 
 #include "scene/gui/container.h"
 
@@ -37,8 +38,6 @@ class SubViewportContainer : public Container {
 
 	bool stretch = false;
 	int shrink = 1;
-	bool mouse_target = false;
-
 	void _notify_viewports(int p_notification);
 	bool _is_propagated_in_gui_input(const Ref<InputEvent> &p_event);
 	void _send_event_to_viewports(const Ref<InputEvent> &p_event);
@@ -64,9 +63,6 @@ public:
 	int get_stretch_shrink() const;
 	void recalc_force_viewport_sizes();
 
-	void set_mouse_target(bool p_enable);
-	bool is_mouse_target_enabled();
-
 	virtual Size2 get_minimum_size() const override;
 
 	virtual Vector<int> get_allowed_size_flags_horizontal() const override;
@@ -76,3 +72,5 @@ public:
 
 	SubViewportContainer();
 };
+
+#endif // SUBVIEWPORT_CONTAINER_H

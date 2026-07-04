@@ -58,7 +58,7 @@ static void _calculateCoefficients(const SwFill* fill, uint32_t x, uint32_t y, f
     auto deltaDeltaRr = 2.0f * (radial->a11 * radial->a11 + radial->a21 * radial->a21) * radial->invA;
 
     det = b * b + (rr - radial->fr * radial->fr) * radial->invA;
-    deltaDet = 2.0f * b * deltaB + deltaB * deltaB + deltaRr + deltaDeltaRr * 0.5f;
+    deltaDet = 2.0f * b * deltaB + deltaB * deltaB + deltaRr + deltaDeltaRr;
     deltaDeltaDet = 2.0f * deltaB * deltaB + deltaDeltaRr;
 }
 
@@ -66,15 +66,15 @@ static void _calculateCoefficients(const SwFill* fill, uint32_t x, uint32_t y, f
 static uint32_t _estimateAAMargin(const Fill* fdata)
 {
     constexpr float marginScalingFactor = 800.0f;
-    if (fdata->type() == Type::RadialGradient) {
+    if (fdata->identifier() == TVG_CLASS_ID_RADIAL) {
         auto radius = P(static_cast<const RadialGradient*>(fdata))->r;
-        return tvg::zero(radius) ? 0 : static_cast<uint32_t>(marginScalingFactor / radius);
+        return mathZero(radius) ? 0 : static_cast<uint32_t>(marginScalingFactor / radius);
     }
     auto grad = P(static_cast<const LinearGradient*>(fdata));
     Point p1 {grad->x1, grad->y1};
     Point p2 {grad->x2, grad->y2};
-    auto len = length(&p1, &p2);
-    return tvg::zero(len) ? 0 : static_cast<uint32_t>(marginScalingFactor / len);
+    auto length = mathLength(&p1, &p2);
+    return mathZero(length) ? 0 : static_cast<uint32_t>(marginScalingFactor / length);
 }
 
 
@@ -125,8 +125,6 @@ static void _applyAA(const SwFill* fill, uint32_t begin, uint32_t end)
 
 static bool _updateColorTable(SwFill* fill, const Fill* fdata, const SwSurface* surface, uint8_t opacity)
 {
-    if (fill->solid) return true;
-
     if (!fill->ctable) {
         fill->ctable = static_cast<uint32_t*>(malloc(GRADIENT_STOP_SIZE * sizeof(uint32_t)));
         if (!fill->ctable) return false;
@@ -207,52 +205,49 @@ static bool _updateColorTable(SwFill* fill, const Fill* fdata, const SwSurface* 
 }
 
 
-bool _prepareLinear(SwFill* fill, const LinearGradient* linear, const Matrix& transform)
+bool _prepareLinear(SwFill* fill, const LinearGradient* linear, const Matrix* transform)
 {
     float x1, x2, y1, y2;
     if (linear->linear(&x1, &y1, &x2, &y2) != Result::Success) return false;
 
     fill->linear.dx = x2 - x1;
     fill->linear.dy = y2 - y1;
-    auto len = fill->linear.dx * fill->linear.dx + fill->linear.dy * fill->linear.dy;
+    fill->linear.len = fill->linear.dx * fill->linear.dx + fill->linear.dy * fill->linear.dy;
 
-    if (len < FLOAT_EPSILON) {
-        if (tvg::zero(fill->linear.dx) && tvg::zero(fill->linear.dy)) {
-            fill->solid = true;
-        }
-        return true;
-    }
+    if (fill->linear.len < FLOAT_EPSILON) return true;
 
-    fill->linear.dx /= len;
-    fill->linear.dy /= len;
+    fill->linear.dx /= fill->linear.len;
+    fill->linear.dy /= fill->linear.len;
     fill->linear.offset = -fill->linear.dx * x1 - fill->linear.dy * y1;
 
     auto gradTransform = linear->transform();
-    bool isTransformation = !identity((const Matrix*)(&gradTransform));
+    bool isTransformation = !mathIdentity((const Matrix*)(&gradTransform));
 
     if (isTransformation) {
-        gradTransform = transform * gradTransform;
-    } else {
-        gradTransform = transform;
+        if (transform) gradTransform = *transform * gradTransform;
+    } else if (transform) {
+        gradTransform = *transform;
         isTransformation = true;
     }
 
     if (isTransformation) {
         Matrix invTransform;
-        if (!inverse(&gradTransform, &invTransform)) return false;
+        if (!mathInverse(&gradTransform, &invTransform)) return false;
 
         fill->linear.offset += fill->linear.dx * invTransform.e13 + fill->linear.dy * invTransform.e23;
 
         auto dx = fill->linear.dx;
         fill->linear.dx = dx * invTransform.e11 + fill->linear.dy * invTransform.e21;
         fill->linear.dy = dx * invTransform.e12 + fill->linear.dy * invTransform.e22;
+
+        fill->linear.len = fill->linear.dx * fill->linear.dx + fill->linear.dy * fill->linear.dy;
     }
 
     return true;
 }
 
 
-bool _prepareRadial(SwFill* fill, const RadialGradient* radial, const Matrix& transform)
+bool _prepareRadial(SwFill* fill, const RadialGradient* radial, const Matrix* transform)
 {
     auto cx = P(radial)->cx;
     auto cy = P(radial)->cy;
@@ -261,10 +256,7 @@ bool _prepareRadial(SwFill* fill, const RadialGradient* radial, const Matrix& tr
     auto fy = P(radial)->fy;
     auto fr = P(radial)->fr;
 
-    if (tvg::zero(r)) {
-        fill->solid = true;
-        return true;
-    }
+    if (r < FLOAT_EPSILON) return true;
 
     fill->radial.dr = r - fr;
     fill->radial.dx = cx - fx;
@@ -295,17 +287,19 @@ bool _prepareRadial(SwFill* fill, const RadialGradient* radial, const Matrix& tr
     if (fill->radial.a > 0) fill->radial.invA = 1.0f / fill->radial.a;
 
     auto gradTransform = radial->transform();
-    bool isTransformation = !identity((const Matrix*)(&gradTransform));
+    bool isTransformation = !mathIdentity((const Matrix*)(&gradTransform));
 
-    if (isTransformation) gradTransform = transform * gradTransform;
-    else {
-        gradTransform = transform;
-        isTransformation = true;
+    if (transform) {
+        if (isTransformation) gradTransform = *transform * gradTransform;
+        else {
+            gradTransform = *transform;
+            isTransformation = true;
+        }
     }
 
     if (isTransformation) {
         Matrix invTransform;
-        if (!inverse(&gradTransform, &invTransform)) return false;
+        if (!mathInverse(&gradTransform, &invTransform)) return false;
         fill->radial.a11 = invTransform.e11;
         fill->radial.a12 = invTransform.e12;
         fill->radial.a13 = invTransform.e13;
@@ -487,7 +481,6 @@ void fillRadial(const SwFill* fill, uint8_t* dst, uint32_t y, uint32_t x, uint32
             auto src = MULTIPLY(A(_pixel(fill, sqrtf(det))), a);
             auto tmp = maskOp(src, *cmp, 0);
             *dst = tmp + MULTIPLY(*dst, ~tmp);
-            det += deltaDet;
             deltaDet += deltaDeltaDet;
             b += deltaB;
         }
@@ -554,7 +547,7 @@ void fillLinear(const SwFill* fill, uint32_t* dst, uint32_t y, uint32_t x, uint3
     float inc = (fill->linear.dx) * (GRADIENT_STOP_SIZE - 1);
 
     if (opacity == 255) {
-        if (tvg::zero(inc)) {
+        if (mathZero(inc)) {
             auto color = _fixedPixel(fill, static_cast<int32_t>(t * FIXPT_SIZE));
             for (uint32_t i = 0; i < len; ++i, ++dst, cmp += csize) {
                 *dst = opBlendNormal(color, *dst, alpha(cmp));
@@ -585,7 +578,7 @@ void fillLinear(const SwFill* fill, uint32_t* dst, uint32_t y, uint32_t x, uint3
             }
         }
     } else {
-        if (tvg::zero(inc)) {
+        if (mathZero(inc)) {
             auto color = _fixedPixel(fill, static_cast<int32_t>(t * FIXPT_SIZE));
             for (uint32_t i = 0; i < len; ++i, ++dst, cmp += csize) {
                 *dst = opBlendNormal(color, *dst, MULTIPLY(alpha(cmp), opacity));
@@ -627,7 +620,7 @@ void fillLinear(const SwFill* fill, uint8_t* dst, uint32_t y, uint32_t x, uint32
     float t = (fill->linear.dx * rx + fill->linear.dy * ry + fill->linear.offset) * (GRADIENT_STOP_SIZE - 1);
     float inc = (fill->linear.dx) * (GRADIENT_STOP_SIZE - 1);
 
-    if (tvg::zero(inc)) {
+    if (mathZero(inc)) {
         auto src = MULTIPLY(a, A(_fixedPixel(fill, static_cast<int32_t>(t * FIXPT_SIZE))));
         for (uint32_t i = 0; i < len; ++i, ++dst) {
             *dst = maskOp(src, *dst, ~src);
@@ -644,7 +637,7 @@ void fillLinear(const SwFill* fill, uint8_t* dst, uint32_t y, uint32_t x, uint32
         auto t2 = static_cast<int32_t>(t * FIXPT_SIZE);
         auto inc2 = static_cast<int32_t>(inc * FIXPT_SIZE);
         for (uint32_t j = 0; j < len; ++j, ++dst) {
-            auto src = MULTIPLY(A(_fixedPixel(fill, t2)), a);
+            auto src = MULTIPLY(_fixedPixel(fill, t2), a);
             *dst = maskOp(src, *dst, ~src);
             t2 += inc2;
         }
@@ -652,7 +645,7 @@ void fillLinear(const SwFill* fill, uint8_t* dst, uint32_t y, uint32_t x, uint32
     } else {
         uint32_t counter = 0;
         while (counter++ < len) {
-            auto src = MULTIPLY(A(_pixel(fill, t / GRADIENT_STOP_SIZE)), a);
+            auto src = MULTIPLY(_pixel(fill, t / GRADIENT_STOP_SIZE), a);
             *dst = maskOp(src, *dst, ~src);
             ++dst;
             t += inc;
@@ -669,7 +662,7 @@ void fillLinear(const SwFill* fill, uint8_t* dst, uint32_t y, uint32_t x, uint32
     float t = (fill->linear.dx * rx + fill->linear.dy * ry + fill->linear.offset) * (GRADIENT_STOP_SIZE - 1);
     float inc = (fill->linear.dx) * (GRADIENT_STOP_SIZE - 1);
 
-    if (tvg::zero(inc)) {
+    if (mathZero(inc)) {
         auto src = A(_fixedPixel(fill, static_cast<int32_t>(t * FIXPT_SIZE)));
         src = MULTIPLY(src, a);
         for (uint32_t i = 0; i < len; ++i, ++dst, ++cmp) {
@@ -716,7 +709,7 @@ void fillLinear(const SwFill* fill, uint32_t* dst, uint32_t y, uint32_t x, uint3
     float t = (fill->linear.dx * rx + fill->linear.dy * ry + fill->linear.offset) * (GRADIENT_STOP_SIZE - 1);
     float inc = (fill->linear.dx) * (GRADIENT_STOP_SIZE - 1);
 
-    if (tvg::zero(inc)) {
+    if (mathZero(inc)) {
         auto color = _fixedPixel(fill, static_cast<int32_t>(t * FIXPT_SIZE));
         for (uint32_t i = 0; i < len; ++i, ++dst) {
             *dst = op(color, *dst, a);
@@ -756,7 +749,7 @@ void fillLinear(const SwFill* fill, uint32_t* dst, uint32_t y, uint32_t x, uint3
     float t = (fill->linear.dx * rx + fill->linear.dy * ry + fill->linear.offset) * (GRADIENT_STOP_SIZE - 1);
     float inc = (fill->linear.dx) * (GRADIENT_STOP_SIZE - 1);
 
-    if (tvg::zero(inc)) {
+    if (mathZero(inc)) {
         auto color = _fixedPixel(fill, static_cast<int32_t>(t * FIXPT_SIZE));
         if (a == 255) {
             for (uint32_t i = 0; i < len; ++i, ++dst) {
@@ -823,32 +816,25 @@ void fillLinear(const SwFill* fill, uint32_t* dst, uint32_t y, uint32_t x, uint3
 }
 
 
-bool fillGenColorTable(SwFill* fill, const Fill* fdata, const Matrix& transform, SwSurface* surface, uint8_t opacity, bool ctable)
+bool fillGenColorTable(SwFill* fill, const Fill* fdata, const Matrix* transform, SwSurface* surface, uint8_t opacity, bool ctable)
 {
     if (!fill) return false;
 
     fill->spread = fdata->spread();
 
-    if (fdata->type() == Type::LinearGradient) {
-        if (!_prepareLinear(fill, static_cast<const LinearGradient*>(fdata), transform)) return false;
-    } else if (fdata->type() == Type::RadialGradient) {
-        if (!_prepareRadial(fill, static_cast<const RadialGradient*>(fdata), transform)) return false;
+    if (ctable) {
+        if (!_updateColorTable(fill, fdata, surface, opacity)) return false;
     }
 
-    if (ctable) return _updateColorTable(fill, fdata, surface, opacity);
-    return true;
-}
+    if (fdata->identifier() == TVG_CLASS_ID_LINEAR) {
+        return _prepareLinear(fill, static_cast<const LinearGradient*>(fdata), transform);
+    } else if (fdata->identifier() == TVG_CLASS_ID_RADIAL) {
+        return _prepareRadial(fill, static_cast<const RadialGradient*>(fdata), transform);
+    }
 
+    //LOG: What type of gradient?!
 
-const Fill::ColorStop* fillFetchSolid(const SwFill* fill, const Fill* fdata)
-{
-    if (!fill->solid) return nullptr;
-
-    const Fill::ColorStop* colors;
-    auto cnt = fdata->colorStops(&colors);
-    if (cnt == 0 || !colors) return nullptr;
-
-    return colors + cnt - 1;
+    return false;
 }
 
 
@@ -859,7 +845,6 @@ void fillReset(SwFill* fill)
         fill->ctable = nullptr;
     }
     fill->translucent = false;
-    fill->solid = false;
 }
 
 

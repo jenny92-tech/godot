@@ -30,6 +30,8 @@
 
 #include "openxr_local_floor_extension.h"
 
+#include "core/string/print_string.h"
+
 OpenXRLocalFloorExtension *OpenXRLocalFloorExtension::singleton = nullptr;
 
 OpenXRLocalFloorExtension *OpenXRLocalFloorExtension::get_singleton() {

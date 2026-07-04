@@ -28,13 +28,16 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef PLUGIN_CONFIG_DIALOG_H
+#define PLUGIN_CONFIG_DIALOG_H
 
 #include "scene/gui/check_box.h"
 #include "scene/gui/dialogs.h"
 #include "scene/gui/line_edit.h"
 #include "scene/gui/option_button.h"
+#include "scene/gui/panel_container.h"
 #include "scene/gui/text_edit.h"
+#include "scene/gui/texture_rect.h"
 
 class ConfigFile;
 class EditorValidationPanel;
@@ -81,4 +84,7 @@ public:
 	void config(const String &p_config_path);
 
 	PluginConfigDialog();
+	~PluginConfigDialog();
 };
+
+#endif // PLUGIN_CONFIG_DIALOG_H

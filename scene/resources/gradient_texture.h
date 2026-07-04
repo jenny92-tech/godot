@@ -28,7 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef GRADIENT_TEXTURE_H
+#define GRADIENT_TEXTURE_H
 
 #include "scene/resources/texture.h"
 
@@ -37,13 +38,13 @@ class GradientTexture1D : public Texture2D {
 
 private:
 	Ref<Gradient> gradient;
-	mutable bool update_pending = false;
+	bool update_pending = false;
 	mutable RID texture;
 	int width = 256;
 	bool use_hdr = false;
 
 	void _queue_update();
-	void _update() const;
+	void _update();
 
 protected:
 	static void _bind_methods();
@@ -63,7 +64,7 @@ public:
 	virtual bool has_alpha() const override { return true; }
 
 	virtual Ref<Image> get_image() const override;
-	void update_now() const;
+	void update_now();
 
 	GradientTexture1D();
 	virtual ~GradientTexture1D();
@@ -101,9 +102,9 @@ private:
 
 	float _get_gradient_offset_at(int x, int y) const;
 
-	mutable bool update_pending = false;
+	bool update_pending = false;
 	void _queue_update();
-	void _update() const;
+	void _update();
 
 protected:
 	static void _bind_methods();
@@ -133,7 +134,7 @@ public:
 	virtual RID get_rid() const override;
 	virtual bool has_alpha() const override { return true; }
 	virtual Ref<Image> get_image() const override;
-	void update_now() const;
+	void update_now();
 
 	GradientTexture2D();
 	virtual ~GradientTexture2D();
@@ -141,3 +142,5 @@ public:
 
 VARIANT_ENUM_CAST(GradientTexture2D::Fill);
 VARIANT_ENUM_CAST(GradientTexture2D::Repeat);
+
+#endif // GRADIENT_TEXTURE_H

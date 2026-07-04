@@ -28,7 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef NET_SOCKET_H
+#define NET_SOCKET_H
 
 #include "core/io/ip.h"
 #include "core/object/ref_counted.h"
@@ -40,13 +41,13 @@ protected:
 public:
 	static NetSocket *create();
 
-	enum PollType : int32_t {
+	enum PollType {
 		POLL_TYPE_IN,
 		POLL_TYPE_OUT,
 		POLL_TYPE_IN_OUT
 	};
 
-	enum Type : int32_t {
+	enum Type {
 		TYPE_NONE,
 		TYPE_TCP,
 		TYPE_UDP,
@@ -75,6 +76,6 @@ public:
 	virtual void set_reuse_address_enabled(bool p_enabled) = 0;
 	virtual Error join_multicast_group(const IPAddress &p_multi_address, const String &p_if_name) = 0;
 	virtual Error leave_multicast_group(const IPAddress &p_multi_address, const String &p_if_name) = 0;
-
-	virtual ~NetSocket() {}
 };
+
+#endif // NET_SOCKET_H

@@ -21,7 +21,7 @@ public static class CSharpAnalyzerVerifier<TAnalyzer>
     {
         public Test()
         {
-            ReferenceAssemblies = Constants.Net80;
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net60;
 
             SolutionTransforms.Add((Solution solution, ProjectId projectId) =>
             {

@@ -28,9 +28,12 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef NATIVE_MENU_H
+#define NATIVE_MENU_H
 
 #include "core/input/input.h"
+#include "core/io/resource.h"
+#include "core/os/os.h"
 #include "core/variant/callable.h"
 
 class Texture2D;
@@ -155,3 +158,5 @@ public:
 
 VARIANT_ENUM_CAST(NativeMenu::Feature);
 VARIANT_ENUM_CAST(NativeMenu::SystemMenus);
+
+#endif // NATIVE_MENU_H

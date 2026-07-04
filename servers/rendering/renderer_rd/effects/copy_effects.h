@@ -28,7 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef COPY_EFFECTS_RD_H
+#define COPY_EFFECTS_RD_H
 
 #include "servers/rendering/renderer_rd/pipeline_cache_rd.h"
 #include "servers/rendering/renderer_rd/shaders/effects/blur_raster.glsl.gen.h"
@@ -216,6 +217,7 @@ private:
 		float z_far;
 		float z_near;
 		float texel_size[2];
+		float screen_rect[4];
 	};
 
 	struct CopyToDP {
@@ -357,3 +359,5 @@ public:
 };
 
 } // namespace RendererRD
+
+#endif // COPY_EFFECTS_RD_H

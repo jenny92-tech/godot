@@ -28,7 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef RESOURCE_FORMAT_BINARY_H
+#define RESOURCE_FORMAT_BINARY_H
 
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
@@ -117,7 +118,6 @@ public:
 	virtual String get_resource_script_class(const String &p_path) const override;
 	virtual void get_classes_used(const String &p_path, HashSet<StringName> *r_classes) override;
 	virtual ResourceUID::ID get_resource_uid(const String &p_path) const override;
-	virtual bool has_custom_uid_support() const override;
 	virtual void get_dependencies(const String &p_path, List<String> *p_dependencies, bool p_add_types = false) override;
 	virtual Error rename_dependencies(const String &p_path, const HashMap<String, String> &p_map) override;
 };
@@ -180,7 +180,7 @@ public:
 
 class ResourceFormatSaverBinary : public ResourceFormatSaver {
 public:
-	static inline ResourceFormatSaverBinary *singleton = nullptr;
+	static ResourceFormatSaverBinary *singleton;
 	virtual Error save(const Ref<Resource> &p_resource, const String &p_path, uint32_t p_flags = 0) override;
 	virtual Error set_uid(const String &p_path, ResourceUID::ID p_uid) override;
 	virtual bool recognize(const Ref<Resource> &p_resource) const override;
@@ -188,3 +188,5 @@ public:
 
 	ResourceFormatSaverBinary();
 };
+
+#endif // RESOURCE_FORMAT_BINARY_H

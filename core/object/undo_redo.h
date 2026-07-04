@@ -28,7 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef UNDO_REDO_H
+#define UNDO_REDO_H
 
 #include "core/object/class_db.h"
 #include "core/object/ref_counted.h"
@@ -128,7 +129,6 @@ public:
 	int get_current_action();
 	String get_action_name(int p_id);
 	void clear_history(bool p_increase_version = true);
-	void discard_redo();
 
 	bool has_undo() const;
 	bool has_redo() const;
@@ -150,3 +150,5 @@ public:
 };
 
 VARIANT_ENUM_CAST(UndoRedo::MergeMode);
+
+#endif // UNDO_REDO_H

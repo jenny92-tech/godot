@@ -28,7 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef NOISE_TEXTURE_3D_H
+#define NOISE_TEXTURE_3D_H
 
 #include "noise.h"
 
@@ -102,8 +103,6 @@ public:
 	virtual int get_height() const override;
 	virtual int get_depth() const override;
 
-	virtual bool has_mipmaps() const override;
-
 	virtual RID get_rid() const override;
 
 	virtual Vector<Ref<Image>> get_data() const override;
@@ -112,3 +111,5 @@ public:
 	NoiseTexture3D();
 	virtual ~NoiseTexture3D();
 };
+
+#endif // NOISE_TEXTURE_3D_H

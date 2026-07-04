@@ -50,7 +50,8 @@ namespace Godot.Collections
         /// <returns>A new Godot Array.</returns>
         public Array(IEnumerable<Variant> collection) : this()
         {
-            ArgumentNullException.ThrowIfNull(collection);
+            if (collection == null)
+                throw new ArgumentNullException(nameof(collection));
 
             foreach (Variant element in collection)
                 Add(element);
@@ -66,7 +67,8 @@ namespace Godot.Collections
         /// <returns>A new Godot Array.</returns>
         public Array(Variant[] array)
         {
-            ArgumentNullException.ThrowIfNull(array);
+            if (array == null)
+                throw new ArgumentNullException(nameof(array));
 
             NativeValue = (godot_array.movable)NativeFuncs.godotsharp_array_new();
             _weakReferenceToSelf = DisposablesTracker.RegisterDisposable(this);
@@ -1035,22 +1037,15 @@ namespace Godot.Collections
     }
 
     /// <summary>
-    /// Typed wrapper around Godot's Array class, an array of <typeparamref name="T"/>
-    /// annotated, Variant typed elements allocated in the engine in C++.
-    /// Useful when interfacing with the engine. Otherwise prefer .NET collections
+    /// Typed wrapper around Godot's Array class, an array of Variant
+    /// typed elements allocated in the engine in C++. Useful when
+    /// interfacing with the engine. Otherwise prefer .NET collections
     /// such as arrays or <see cref="List{T}"/>.
     /// </summary>
     /// <typeparam name="T">The type of the array.</typeparam>
-    /// <remarks>
-    /// While the elements are statically annotated to <typeparamref name="T"/>,
-    /// the underlying array still stores <see cref="Variant"/>, which has the same
-    /// memory footprint per element as an untyped <see cref="Array"/>.
-    /// </remarks>
     [DebuggerTypeProxy(typeof(ArrayDebugView<>))]
     [DebuggerDisplay("Count = {Count}")]
     [SuppressMessage("ReSharper", "RedundantExtendsListEntry")]
-    [SuppressMessage("Design", "CA1001", MessageId = "Types that own disposable fields should be disposable",
-            Justification = "Known issue. Requires explicit refcount management to not dispose untyped collections.")]
     [SuppressMessage("Naming", "CA1710", MessageId = "Identifiers should have correct suffix")]
     public sealed class Array<[MustBeVariant] T> :
         IList<T>,
@@ -1059,32 +1054,16 @@ namespace Godot.Collections
         IEnumerable<T>,
         IGenericGodotArray
     {
-        private static godot_variant ToVariantFunc(scoped in Array<T> godotArray) =>
+        private static godot_variant ToVariantFunc(in Array<T> godotArray) =>
             VariantUtils.CreateFromArray(godotArray);
 
         private static Array<T> FromVariantFunc(in godot_variant variant) =>
             VariantUtils.ConvertToArray<T>(variant);
 
-        private void SetTypedForUnderlyingArray()
-        {
-            Marshaling.GetTypedCollectionParameterInfo<T>(out var elemVariantType, out var elemClassName, out var elemScriptRef);
-
-            var self = (godot_array)NativeValue;
-
-            using (elemScriptRef)
-            {
-                NativeFuncs.godotsharp_array_set_typed(
-                    ref self,
-                    (uint)elemVariantType,
-                    elemClassName,
-                    elemScriptRef);
-            }
-        }
-
         static unsafe Array()
         {
-            VariantUtils.GenericConversion<Array<T>>.ToVariantCb = ToVariantFunc;
-            VariantUtils.GenericConversion<Array<T>>.FromVariantCb = FromVariantFunc;
+            VariantUtils.GenericConversion<Array<T>>.ToVariantCb = &ToVariantFunc;
+            VariantUtils.GenericConversion<Array<T>>.FromVariantCb = &FromVariantFunc;
         }
 
         private readonly Array _underlyingArray;
@@ -1104,7 +1083,6 @@ namespace Godot.Collections
         public Array()
         {
             _underlyingArray = new Array();
-            SetTypedForUnderlyingArray();
         }
 
         /// <summary>
@@ -1117,10 +1095,10 @@ namespace Godot.Collections
         /// <returns>A new Godot Array.</returns>
         public Array(IEnumerable<T> collection)
         {
-            ArgumentNullException.ThrowIfNull(collection);
+            if (collection == null)
+                throw new ArgumentNullException(nameof(collection));
 
             _underlyingArray = new Array();
-            SetTypedForUnderlyingArray();
 
             foreach (T element in collection)
                 Add(element);
@@ -1136,10 +1114,10 @@ namespace Godot.Collections
         /// <returns>A new Godot Array.</returns>
         public Array(T[] array)
         {
-            ArgumentNullException.ThrowIfNull(array);
+            if (array == null)
+                throw new ArgumentNullException(nameof(array));
 
             _underlyingArray = new Array();
-            SetTypedForUnderlyingArray();
 
             foreach (T element in array)
                 Add(element);
@@ -1155,7 +1133,8 @@ namespace Godot.Collections
         /// <returns>A new Godot Array.</returns>
         public Array(Array array)
         {
-            ArgumentNullException.ThrowIfNull(array);
+            if (array == null)
+                throw new ArgumentNullException(nameof(array));
 
             _underlyingArray = array;
         }

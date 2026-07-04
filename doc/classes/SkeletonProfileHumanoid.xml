@@ -31,7 +31,6 @@
 		                │        └─ LeftHand
 		                │           ├─ LeftThumbMetacarpal
 		                │           │  └─ LeftThumbProximal
-		                │           │    └─ LeftThumbDistal
 		                │           ├─ LeftIndexProximal
 		                │           │  └─ LeftIndexIntermediate
 		                │           │    └─ LeftIndexDistal
@@ -50,7 +49,6 @@
 		                         └─ RightHand
 		                            ├─ RightThumbMetacarpal
 		                            │  └─ RightThumbProximal
-		                            │     └─ RightThumbDistal
 		                            ├─ RightIndexProximal
 		                            │  └─ RightIndexIntermediate
 		                            │     └─ RightIndexDistal

@@ -28,12 +28,14 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#pragma once
+#ifndef WEBRTC_PEER_CONNECTION_EXTENSION_H
+#define WEBRTC_PEER_CONNECTION_EXTENSION_H
 
 #include "webrtc_peer_connection.h"
 
 #include "core/extension/ext_wrappers.gen.inc"
 #include "core/object/gdvirtual.gen.inc"
+#include "core/variant/native_ptr.h"
 
 class WebRTCPeerConnectionExtension : public WebRTCPeerConnection {
 	GDCLASS(WebRTCPeerConnectionExtension, WebRTCPeerConnection);
@@ -57,3 +59,5 @@ public:
 
 	WebRTCPeerConnectionExtension() {}
 };
+
+#endif // WEBRTC_PEER_CONNECTION_EXTENSION_H
