@@ -17,7 +17,7 @@ void initialize_godotsteam_stub_module(ModuleInitializationLevel p_level) {
 
     GDREGISTER_CLASS(Steam);
     steam_singleton = memnew(Steam);
-    Engine::get_singleton()->register_singleton("Steam", steam_singleton);
+    Engine::get_singleton()->add_singleton(Engine::Singleton("Steam", steam_singleton, "Steam"));
 }
 
 void uninitialize_godotsteam_stub_module(ModuleInitializationLevel p_level) {
@@ -25,7 +25,7 @@ void uninitialize_godotsteam_stub_module(ModuleInitializationLevel p_level) {
         return;
     }
 
-    Engine::get_singleton()->unregister_singleton("Steam");
+    Engine::get_singleton()->remove_singleton("Steam");
     memdelete(steam_singleton);
     steam_singleton = nullptr;
 }

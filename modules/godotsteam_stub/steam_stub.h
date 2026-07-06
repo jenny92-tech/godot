@@ -4,6 +4,7 @@
 #ifndef GODOTSTEAM_STUB_STEAM_STUB_H
 #define GODOTSTEAM_STUB_STEAM_STUB_H
 
+#include "core/object/class_db.h"
 #include "core/object/object.h"
 
 class Steam : public Object {
