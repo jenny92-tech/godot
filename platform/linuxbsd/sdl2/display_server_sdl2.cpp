@@ -148,7 +148,7 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 		// unityloader(HK/黑神话)在同款 Mali 上验证过的属性:GLES profile + 3.x。
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, KMSConfig::sdl_gles_minor);
 		SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
 		SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
 		SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
@@ -168,16 +168,12 @@ DisplayServerSDL2::DisplayServerSDL2(const String &p_rendering_driver, WindowMod
 			return;
 		}
 
-		// GLES 3.2 → 3.1 → 3.0 逐级回退(libmali 普遍 3.x,版本因芯片而异)。
+		// GLES 3.x:从 POC_SDL_GLES_MINOR 指定版本向 3.0 逐级回退。
 		SDL_GLContext glc = SDL_GL_CreateContext(window);
-		if (glc == nullptr) {
-			poc_diag_fmt("DSDL2: GLES 3.2 context 失败 (%s),回退 3.1", SDL_GetError());
-			SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-			glc = SDL_GL_CreateContext(window);
-		}
-		if (glc == nullptr) {
-			poc_diag_fmt("DSDL2: GLES 3.1 context 失败 (%s),回退 3.0", SDL_GetError());
-			SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+		for (int minor = KMSConfig::sdl_gles_minor - 1; glc == nullptr && minor >= 0; minor--) {
+			poc_diag_fmt("DSDL2: GLES 3.%d context 失败 (%s),回退 3.%d",
+					minor + 1, SDL_GetError(), minor);
+			SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor);
 			glc = SDL_GL_CreateContext(window);
 		}
 		if (glc == nullptr) {

@@ -44,6 +44,7 @@ public:
 	static int egl_stencil_size;
 	static int egl_gles_major;        // GLES 2 or 3
 	static int egl_swap_interval;     // 0 = no vsync, 1 = vsync
+	static int sdl_gles_minor;        // SDL-delegated GLES 3.x minor, 0..2
 
 	// ===== 增量 bisect skip(逐步关掉某层,看 godot 在哪里崩)=====
 	static bool skip_kms;             // 完全跳过 KMS+EGL(只 SDL2 dummy,测 godot setup 本身)

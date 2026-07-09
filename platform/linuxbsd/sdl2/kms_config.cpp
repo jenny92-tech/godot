@@ -36,6 +36,7 @@ int KMSConfig::egl_depth_size = 16;
 int KMSConfig::egl_stencil_size = 0;
 int KMSConfig::egl_gles_major = 3;
 int KMSConfig::egl_swap_interval = 1;
+int KMSConfig::sdl_gles_minor = 2;
 
 bool KMSConfig::skip_kms = false;
 bool KMSConfig::skip_egl = false;
@@ -61,6 +62,16 @@ static bool _env_bool(const char *name, bool def) {
 		return def;
 	}
 	return atoi(v) != 0;
+}
+
+static int _clamp_int(int value, int min_value, int max_value) {
+	if (value < min_value) {
+		return min_value;
+	}
+	if (value > max_value) {
+		return max_value;
+	}
+	return value;
 }
 
 static String _env_str(const char *name, const String &def) {
@@ -140,6 +151,7 @@ void KMSConfig::load_from_env() {
 	egl_stencil_size = _env_int("POC_EGL_STENCIL", 0);
 	egl_gles_major = _env_int("POC_EGL_GLES_VER", 3);
 	egl_swap_interval = _env_int("POC_EGL_VSYNC", 1);
+	sdl_gles_minor = _clamp_int(_env_int("POC_SDL_GLES_MINOR", 2), 0, 2);
 
 	// Skip bisect
 	skip_kms = _env_bool("POC_SKIP_KMS", false);
@@ -160,7 +172,7 @@ void KMSConfig::dump() {
 			"[POC-CONFIG] DIAG=%d DIAG_FILE='%s'\n"
 			"[POC-CONFIG] DRM_DEVICE='%s' DRM_MASTER=%d\n"
 			"[POC-CONFIG] GBM_FORMAT=%s LINEAR=%d\n"
-			"[POC-CONFIG] EGL_PLATFORM_EXT=%d RGB=%d/%d/%d A=%d D=%d S=%d GLES=%d VSYNC=%d\n"
+			"[POC-CONFIG] EGL_PLATFORM_EXT=%d RGB=%d/%d/%d A=%d D=%d S=%d GLES=%d VSYNC=%d SDL_GLES=3.%d\n"
 			"[POC-CONFIG] SKIP: KMS=%d EGL=%d EGL_SURFACE=%d MAKE_CURRENT=%d PAGE_FLIP=%d NO_VBLANK_WAIT=%d\n"
 			"[POC-CONFIG] ==============================================\n\n",
 			diag_enabled, diag_file.utf8().get_data(),
@@ -169,7 +181,7 @@ void KMSConfig::dump() {
 			egl_use_platform_ext ? 1 : 0,
 			egl_red_size, egl_green_size, egl_blue_size,
 			egl_alpha_size, egl_depth_size, egl_stencil_size,
-			egl_gles_major, egl_swap_interval,
+			egl_gles_major, egl_swap_interval, sdl_gles_minor,
 			skip_kms ? 1 : 0, skip_egl ? 1 : 0, skip_egl_surface ? 1 : 0,
 			skip_make_current ? 1 : 0, skip_page_flip ? 1 : 0, no_vblank_wait ? 1 : 0);
 	if (n > 0) {
