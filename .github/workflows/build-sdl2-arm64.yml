@@ -1,0 +1,191 @@
+name: 🛠 Build linuxbsd SDL2 arm64
+
+# arm64 template_release with our SDL2 DisplayServer.
+# ubuntu:20.04 → glibc ≤ 2.31 for handhelds.
+# Default ships BOTH base and mono so memory-tight ports (Black Myth pixel,
+# pre-mono Unity titles) can grab base (~30 MB) and Mono-using titles get
+# the full mono build.
+
+on:
+  workflow_dispatch:
+    inputs:
+      variants:
+        description: 'Which variants to build'
+        required: true
+        default: 'base+mono'
+        type: choice
+        options:
+          - base
+          - mono
+          - mono-x11
+          - base+mono
+          - all
+
+jobs:
+  matrix:
+    name: Resolve variants
+    runs-on: ubuntu-latest
+    outputs:
+      variants: ${{ steps.set.outputs.variants }}
+    steps:
+      - id: set
+        run: |
+          case "${{ inputs.variants }}" in
+            base)      echo 'variants=["base"]' >> "$GITHUB_OUTPUT" ;;
+            mono)      echo 'variants=["mono"]' >> "$GITHUB_OUTPUT" ;;
+            mono-x11)  echo 'variants=["mono-x11"]' >> "$GITHUB_OUTPUT" ;;
+            base+mono) echo 'variants=["base","mono"]' >> "$GITHUB_OUTPUT" ;;
+            *)         echo 'variants=["base","mono","mono-x11"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  build:
+    needs: matrix
+    name: linuxbsd arm64 ${{ matrix.variant }} (glibc≤2.31)
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: ubuntu:20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.matrix.outputs.variants) }}
+    steps:
+      - name: System prereqs
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y \
+            ca-certificates curl wget unzip git binutils \
+            python3 python3-pip \
+            build-essential pkg-config \
+            libsdl2-dev \
+            libgl1-mesa-dev libglu1-mesa-dev libgles2-mesa-dev \
+            libegl1-mesa-dev libgbm-dev libdrm-dev \
+            libasound2-dev libpulse-dev libudev-dev \
+            libfontconfig1-dev libdbus-1-dev libspeechd-dev \
+            libxkbcommon-dev \
+            libwayland-dev libwayland-bin wayland-protocols \
+            libicu-dev \
+            libx11-dev libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev libxss-dev
+          ldd --version | head -1
+          gcc --version | head -1
+
+      - name: Install .NET 8 SDK (mono variant only)
+        if: startsWith(matrix.variant, 'mono')
+        run: |
+          # No .NET 8 apt package on focal; use Microsoft's dotnet-install.sh
+          # (pulls whatever the latest 8.0.* arm64 build is, survives Azure
+          # CDN reshuffles).
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+          chmod +x /tmp/dotnet-install.sh
+          /tmp/dotnet-install.sh --channel 8.0 --install-dir /opt/dotnet
+          echo "/opt/dotnet" >> $GITHUB_PATH
+          export PATH=/opt/dotnet:$PATH
+          dotnet --info | head -8
+
+      - uses: actions/checkout@v4
+
+      - name: Python build deps
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install scons==4.7.0
+          scons --version | head -2
+
+      - name: Build godot (linuxbsd arm64, ${{ matrix.variant }})
+        run: |
+          # sdl=no avoids SDL3/SDL2 in-process conflict.
+          # Display drivers are independent (#ifdef X11/WAYLAND/SDL2_ENABLED), so
+          # one binary can carry several; the launcher picks per device via
+          # --display-driver. We ship BOTH our DSDL2 (DRM-direct, no display
+          # server — TrimUI/KMSDRM) AND wayland (for MiniLoong, whose system
+          # weston owns KMS and can't be bypassed; transform=rotate-90). wayland
+          # is dormant unless --display-driver wayland is used (libwayland is
+          # dlopen'd lazily), so the DRM-direct path keeps its zero-overhead.
+          # mono / base       — x11=no, sdl2+wayland (handheld: DSDL2 or weston).
+          # mono-x11          — x11=yes for the QEMU portsim / desktop debug.
+          # Module disables mirror PortMaster's own godot_4.5.mono.squashfs
+          # runtime — five legacy desktop image formats games tolerate.
+          MONO_FLAG=no
+          case "${{ matrix.variant }}" in
+            mono|mono-x11) MONO_FLAG=yes ;;
+          esac
+          X11_FLAG=no
+          [ "${{ matrix.variant }}" = "mono-x11" ] && X11_FLAG=yes
+          scons \
+            platform=linuxbsd \
+            arch=arm64 \
+            sdl2=yes \
+            sdl=no \
+            x11=$X11_FLAG \
+            wayland=yes \
+            target=template_release \
+            module_mono_enabled=$MONO_FLAG \
+            module_bmp_enabled=no \
+            module_dds_enabled=no \
+            module_ktx_enabled=no \
+            module_svg_enabled=no \
+            module_tga_enabled=no \
+            production=yes \
+            debug_symbols=no \
+            -j$(nproc) 2>&1 | tee /tmp/build.log
+
+      - name: Generate mono glue + build C# assemblies (mono variant only)
+        if: startsWith(matrix.variant, 'mono')
+        run: |
+          export PATH=/opt/dotnet:$PATH
+          # Use the official upstream editor to emit GeneratedIncludes.props
+          # (only the editor binary's bindings_generator can produce them).
+          curl -sL -o /tmp/ed.zip https://github.com/godotengine/godot/releases/download/4.5-stable/Godot_v4.5-stable_mono_linux_arm64.zip
+          unzip -q /tmp/ed.zip -d /tmp/ed
+          ED_BIN=$(find /tmp/ed -name "Godot_*linux*" -type f -executable | head -1)
+          echo "Editor binary: $ED_BIN"
+          "$ED_BIN" --headless --generate-mono-glue modules/mono/glue 2>&1 | tail -5
+          ls modules/mono/glue/GodotSharp/GodotSharp/Generated/ 2>&1 | head -5
+          ./modules/mono/build_scripts/build_assemblies.py \
+            --godot-output-dir=./bin \
+            --godot-platform=linuxbsd 2>&1 | tail -30
+
+      - name: Verify binary
+        run: |
+          # Filename ends in .mono for mono variant.
+          PATTERN="bin/godot.linuxbsd.template_release.arm64*"
+          BIN=$(ls $PATTERN 2>/dev/null | grep -v '\.mono\.' | head -1)
+          case "${{ matrix.variant }}" in mono|mono-x11) BIN=$(ls $PATTERN 2>/dev/null | grep '\.mono$\|\.mono\.' | head -1) ;; esac
+          if [ -z "$BIN" ] || [ ! -f "$BIN" ]; then
+            echo "BUILD ARTIFACT NOT FOUND"
+            ls -la bin/ 2>/dev/null
+            tail -50 /tmp/build.log
+            exit 1
+          fi
+          echo "Built: $BIN ($(ls -la $BIN | awk '{print $5}') bytes)"
+          file "$BIN"
+          echo "--- display drivers compiled in (expect SDL2 + Wayland) ---"
+          for drv in DisplayServerSDL2 DisplayServerWayland DisplayServerX11; do
+            n=$(strings -a "$BIN" 2>/dev/null | grep -c "$drv" || true)
+            echo "  $drv: $n"
+          done
+          if ! grep -qi "Disabling Wayland" /tmp/build.log 2>/dev/null; then
+            echo "  wayland: not disabled at configure ✓"
+          else
+            echo "  !! WARNING: Wayland was disabled during configure"; grep -i "Disabling Wayland" /tmp/build.log
+          fi
+          echo "--- GLIBC requirement ---"
+          objdump -T "$BIN" 2>/dev/null | awk '/GLIBC_/{print $5}' | sort -u
+          echo "--- NEEDED ---"
+          ldd "$BIN" 2>&1 | grep -E "SDL|drm|gbm|EGL|GLES|udev|mali|icu" || true
+          if [[ "${{ matrix.variant }}" == mono* ]]; then
+            echo "--- GodotSharp/ ---"
+            ls -la bin/GodotSharp/ 2>/dev/null | head -20
+            find bin/GodotSharp -name "*.dll" 2>/dev/null | head -10
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: godot-linuxbsd-sdl2-${{ matrix.variant }}-arm64
+          path: |
+            bin/godot.linuxbsd.template_release.arm64*
+            bin/GodotSharp/**
+            /tmp/build.log
+          if-no-files-found: warn
+          retention-days: 3
