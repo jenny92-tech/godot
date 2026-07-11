@@ -310,7 +310,24 @@ void ResourceImporterTexture::save_to_ctex_format(Ref<FileAccess> f, const Ref<I
 		} break;
 		case COMPRESS_VRAM_COMPRESSED: {
 			Ref<Image> image = p_image->duplicate();
-			image->compress_from_channels(p_compress_format, p_channels);
+			// Bogodroid: ASTC block size selectable via project setting. 4 = 8 bpp,
+			// 8 = 2 bpp; the visual hit on 2D card-game art is dominated by
+			// source-resolution caps, not block size.
+			// godot 4.5's ASTCFormat enum is hard-capped at 4x4/8x8 today —
+			// 6x6, 10x10, 12x12 would need their own FORMAT_ASTC_* image-format
+			// constants in core/io/image.h, mapped through every renderer's
+			// rendering_device_driver. Bigger lift; revisit when there's a
+			// concrete need.
+			Image::ASTCFormat astc_format = Image::ASTC_FORMAT_4x4;
+			if (p_compress_format == Image::COMPRESS_ASTC) {
+				int block = int(GLOBAL_GET("rendering/textures/vram_compression/astc_block_size"));
+				if (block == 8) {
+					astc_format = Image::ASTC_FORMAT_8x8;
+				}
+				// else: 0 (unset) or 4 → default 4x4. Any other value reserved
+				// for future block-size enum entries.
+			}
+			image->compress_from_channels(p_compress_format, p_channels, astc_format);
 
 			f->store_32(CompressedTexture2D::DATA_FORMAT_IMAGE);
 			f->store_16(image->get_width());
@@ -712,9 +729,16 @@ Error ResourceImporterTexture::import(ResourceUID::ID p_source_id, const String 
 			}
 
 			if (can_etc2_astc) {
+				// Bogodroid: project-settable "force_astc_for_mobile" makes every
+				// imported texture take the ASTC branch instead of ETC2, so the
+				// ASTC_FORMAT_8x8 patch in _save_ctex actually lands on the whole
+				// pack. ETC2 has no per-block-size knob in godot 4.5; sending the
+				// rest of the textures through ETC2_RGBA8 (8 bpp) would defeat
+				// the 2-bpp savings 1 GB Mali handhelds need.
+				const bool force_astc = GLOBAL_GET("rendering/textures/vram_compression/force_astc_for_mobile");
 				Image::CompressMode image_compress_mode;
 				String image_compress_format;
-				if (high_quality || is_hdr) {
+				if (high_quality || is_hdr || force_astc) {
 					image_compress_mode = Image::COMPRESS_ASTC;
 					image_compress_format = "astc";
 				} else {
