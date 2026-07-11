@@ -79,7 +79,23 @@ int EGLManager::_get_gldisplay_id(void *p_display) {
 	GLDisplay new_gldisplay;
 	new_gldisplay.display = p_display;
 
-	if (GLAD_EGL_VERSION_1_5) {
+	// Some GLES drivers (e.g. ARM Mali Bifrost / Rockchip libmali on RK3566)
+	// report EGL 1.4 yet DO provide the core eglGetPlatformDisplay and advertise
+	// EGL_KHR_platform_wayland, while NOT exporting eglGetPlatformDisplayEXT.
+	// GLAD only wires the core entrypoint at 1.5, so the stock chain below would
+	// pick the (missing) EXT entrypoint and fail with "Can't create an EGL
+	// display", silently dropping the launcher onto a non-wayland fallback.
+	// The core function works fine here, so grab it directly first.
+	void *_godot_get_platform_display = (void *)eglGetPlatformDisplay;
+#ifndef EGL_STATIC
+	if (_godot_get_platform_display == nullptr) {
+		_godot_get_platform_display = (void *)eglGetProcAddress("eglGetPlatformDisplay");
+	}
+#endif
+	if (_godot_get_platform_display != nullptr) {
+		Vector<EGLAttrib> attribs = _get_platform_display_attributes();
+		new_gldisplay.egl_display = ((EGLDisplay(*)(EGLenum, void *, const EGLAttrib *))_godot_get_platform_display)(_get_platform_extension_enum(), new_gldisplay.display, (attribs.size() > 0) ? attribs.ptr() : nullptr);
+	} else if (GLAD_EGL_VERSION_1_5) {
 		Vector<EGLAttrib> attribs = _get_platform_display_attributes();
 		new_gldisplay.egl_display = eglGetPlatformDisplay(_get_platform_extension_enum(), new_gldisplay.display, (attribs.size() > 0) ? attribs.ptr() : nullptr);
 	} else if (GLAD_EGL_EXT_platform_base) {
