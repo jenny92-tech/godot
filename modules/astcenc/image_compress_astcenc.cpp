@@ -30,6 +30,7 @@
 
 #include "image_compress_astcenc.h"
 
+#include "core/config/project_settings.h"
 #include "core/os/os.h"
 #include "core/string/print_string.h"
 
@@ -104,7 +105,25 @@ void _compress_astc(Image *r_img, Image::ASTCFormat p_format) {
 	config.block_y = block_y;
 	config.profile = profile;
 
-	const float quality = ASTCENC_PRE_MEDIUM;
+	// Bogodroid: ASTC encoder preset reads from project setting
+	// "rendering/textures/vram_compression/astc_preset". Defaults to MEDIUM,
+	// matching stock godot. fastest=10 / fast=33 / medium=60 / thorough=98 /
+	// exhaustive=100. On 1 GB Mali ports, "fast" cuts a 25 min reimport down
+	// to ~10 min with no visible quality drop at our source-resolution caps.
+	float quality = ASTCENC_PRE_MEDIUM;
+	{
+		const String preset = String(GLOBAL_GET("rendering/textures/vram_compression/astc_preset"));
+		if (preset == "fastest") {
+			quality = ASTCENC_PRE_FASTEST;
+		} else if (preset == "fast") {
+			quality = ASTCENC_PRE_FAST;
+		} else if (preset == "thorough") {
+			quality = ASTCENC_PRE_THOROUGH;
+		} else if (preset == "exhaustive") {
+			quality = ASTCENC_PRE_EXHAUSTIVE;
+		}
+		// "" or "medium" → ASTCENC_PRE_MEDIUM (stock default).
+	}
 	astcenc_error status = astcenc_config_init(profile, block_x, block_y, 1, quality, 0, &config);
 	ERR_FAIL_COND_MSG(status != ASTCENC_SUCCESS,
 			vformat("astcenc: Configuration initialization failed: %s.", astcenc_get_error_string(status)));
