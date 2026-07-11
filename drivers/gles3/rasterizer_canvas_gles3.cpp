@@ -45,6 +45,10 @@
 #include "storage/particles_storage.h"
 #include "storage/texture_storage.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 void RasterizerCanvasGLES3::_update_transform_2d_to_mat4(const Transform2D &p_transform, float *p_mat4) {
 	p_mat4[0] = p_transform.columns[0][0];
 	p_mat4[1] = p_transform.columns[0][1];
@@ -572,6 +576,27 @@ void RasterizerCanvasGLES3::canvas_render_items(RID p_to_render_target, Item *p_
 	state.current_instance_buffer_index = 0;
 }
 
+#ifndef WEB_ENABLED
+// libmali g13p0:同 program 连续 draw 间换纹理会丢纹理描述符(只有 program 切换才重建)。
+// 对策:换纹理时翻转哑位 MALI_TEXSWITCH_PAD,在孪生 program 间交替。
+// GL_VERSION 含 g13p0 自动开启;GODOT_GLES_TEXBIND_FIX=specswap|off 强制。
+static bool _texswitch_specswap_enabled() {
+	static const bool enabled = []() -> bool {
+		const char *e = getenv("GODOT_GLES_TEXBIND_FIX");
+		if (e) {
+			return strcmp(e, "specswap") == 0;
+		}
+		const char *ver = (const char *)glGetString(GL_VERSION);
+		if (ver && strstr(ver, "g13p0")) {
+			print_line("RasterizerCanvasGLES3: Mali g13p0 blob detected, enabling texbind specswap workaround (GODOT_GLES_TEXBIND_FIX=off to disable).");
+			return true;
+		}
+		return false;
+	}();
+	return enabled;
+}
+#endif // WEB_ENABLED
+
 void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_count, const Transform2D &p_canvas_transform_inverse, Light *p_lights, bool &r_sdf_used, bool p_to_backbuffer, RenderingMethod::RenderInfo *r_render_info, bool p_backbuffer_has_mipmaps) {
 	GLES3::MaterialStorage *material_storage = GLES3::MaterialStorage::get_singleton();
 
@@ -676,6 +701,26 @@ void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_cou
 	glUnmapBuffer(GL_ARRAY_BUFFER);
 #endif
 
+	// GODOT_GLES_BATCH_DEBUG=1:前 8 帧的 batch 组成打到 stderr(排障用)。
+	static const bool batch_debug = (getenv("GODOT_GLES_BATCH_DEBUG") != nullptr);
+	if (batch_debug) {
+		static int dump_calls = 0;
+		if (dump_calls < 8) {
+			dump_calls++;
+			fprintf(stderr, "[BATCH-DBG] render_items call=%d items=%d batches=%u instances_total=%u data_buf=%u inst_buf=%u\n",
+					dump_calls, p_item_count, state.current_batch_index + 1, index,
+					(unsigned)state.current_data_buffer_index, (unsigned)state.current_instance_buffer_index);
+			for (uint32_t i = 0; i <= state.current_batch_index; i++) {
+				const Batch &b = state.canvas_instance_batches[i];
+				fprintf(stderr, "[BATCH-DBG]  b%u: cmd=%d n=%u start=%u tex=%llu spec=0x%llx flags=0x%x blend=%d prim=%u ibuf=%u mat=%llu\n",
+						i, (int)b.command_type, b.instance_count, b.start,
+						(unsigned long long)b.tex.get_id(), (unsigned long long)b.specialization,
+						b.flags, (int)b.blend_mode, b.primitive_points, b.instance_buffer_index,
+						(unsigned long long)b.material.get_id());
+			}
+		}
+	}
+
 	glDisable(GL_SCISSOR_TEST);
 	current_clip = nullptr;
 
@@ -709,7 +754,54 @@ void RasterizerCanvasGLES3::_render_items(RID p_to_render_target, int p_item_cou
 		specialization |= base_specialization;
 		RID shader_version = data.canvas_shader_default_version;
 
-		if (material_data) {
+		// specswap:换纹理即翻转哑位,材质批次也参与(见 _texswitch_specswap_enabled)。
+		if (_texswitch_specswap_enabled()) {
+			static RID last_draw_tex;
+			static bool pad_parity = false;
+			if (state.canvas_instance_batches[i].tex != last_draw_tex) {
+				last_draw_tex = state.canvas_instance_batches[i].tex;
+				pad_parity = !pad_parity;
+			}
+			if (pad_parity) {
+				specialization |= CanvasShaderGLES3::MALI_TEXSWITCH_PAD;
+			}
+		}
+
+		// GODOT_DEFSHADER_TYPES=<逗号分隔的命令类型>:对列出类型强制默认 canvas shader,
+		// 跳过自定义材质(Panfrost 编译极慢 / libmali 会 fault)。注意含 rect 会整屏黑。
+		static const uint32_t defshader_mask = []() -> uint32_t {
+			const char *e = getenv("GODOT_DEFSHADER_TYPES");
+			if (!e) {
+				return 0;
+			}
+			String s = "," + String::utf8(e) + ",";
+			uint32_t m = 0;
+			if (s.find(",rect,") >= 0) {
+				m |= 1u << Item::Command::TYPE_RECT;
+			}
+			if (s.find(",ninepatch,") >= 0) {
+				m |= 1u << Item::Command::TYPE_NINEPATCH;
+			}
+			if (s.find(",polygon,") >= 0) {
+				m |= 1u << Item::Command::TYPE_POLYGON;
+			}
+			if (s.find(",primitive,") >= 0) {
+				m |= 1u << Item::Command::TYPE_PRIMITIVE;
+			}
+			if (s.find(",mesh,") >= 0) {
+				m |= 1u << Item::Command::TYPE_MESH;
+			}
+			if (s.find(",multimesh,") >= 0) {
+				m |= 1u << Item::Command::TYPE_MULTIMESH;
+			}
+			if (s.find(",particles,") >= 0) {
+				m |= 1u << Item::Command::TYPE_PARTICLES;
+			}
+			return m;
+		}();
+		bool force_default = (defshader_mask >> state.canvas_instance_batches[i].command_type) & 1u;
+
+		if (material_data && !force_default) {
 			if (material_data->shader_data->version.is_valid() && material_data->shader_data->valid) {
 				// Bind uniform buffer and textures
 				material_data->bind_uniforms();

@@ -510,6 +510,14 @@ void ParticlesStorage::particles_set_canvas_sdf_collision(RID p_particles, bool 
 
 // Does one step of processing particles by reading from back_process_buffer and writing to front_process_buffer.
 void ParticlesStorage::_particles_process(Particles *p_particles, double p_delta) {
+	// GODOT_DISABLE_PARTICLES: 跳过粒子处理。Mesa Panfrost 编译 ParticlesShaderGLES3
+	// 每个变体要 ~3 分钟(战斗开始/出牌冻几分钟,像卡死;实测 185000ms)。禁用 → 处理
+	// shader 永不被 bind/编译,粒子不模拟(不显示)。仅 env 置位生效(本机用),
+	// 吹米 dummy / 默认路径不设此 env,完全不受影响。
+	static const bool _disable_particles = (getenv("GODOT_DISABLE_PARTICLES") != nullptr);
+	if (_disable_particles) {
+		return;
+	}
 	GLES3::TextureStorage *texture_storage = GLES3::TextureStorage::get_singleton();
 	GLES3::MaterialStorage *material_storage = GLES3::MaterialStorage::get_singleton();
 

@@ -11,6 +11,7 @@ USE_NINEPATCH = false
 USE_PRIMITIVE = false
 USE_ATTRIBUTES = false
 USE_INSTANCING = false
+MALI_TEXSWITCH_PAD = false
 
 #[vertex]
 
