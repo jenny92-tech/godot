@@ -430,6 +430,13 @@ bool DisplayServerSDL2::has_feature(Feature p_feature) const {
 }
 
 String DisplayServerSDL2::get_name() const { return "SDL2"; }
+
+Point2i DisplayServerSDL2::mouse_get_position() const {
+	// Last SDL-reported pointer position (surface-local). The base class
+	// ERR_FAILs, which mouse-driven games would hit through
+	// Viewport/Window position queries.
+	return last_mouse_position;
+}
 int DisplayServerSDL2::get_screen_count() const { return 1; }
 int DisplayServerSDL2::get_primary_screen() const { return 0; }
 
@@ -869,7 +876,116 @@ void DisplayServerSDL2::_process_sdl_event(const SDL_Event &p_ev) {
 			}
 		} break;
 
-		// TODO future work: SDL_MOUSEMOTION / SDL_MOUSEBUTTON*, SDL_TEXTINPUT.
+		// Mouse — only the SDL-delegated (compositor) mode ever delivers
+		// these: the compositor forwards gptokeyb's uinput pointer to our
+		// surface with surface-local, already-rotated coordinates. The evdev
+		// fast path ignores EV_REL/BTN_MOUSE (BTN_LEFT is dropped by the
+		// keyboard mapping there), so unlike SDL_KEY* there is no double-
+		// delivery to guard against and no use_sdl_gl gate is needed —
+		// dummy video produces no mouse events at all.
+		case SDL_MOUSEMOTION: {
+			last_mouse_position = Point2i(p_ev.motion.x, p_ev.motion.y);
+			Ref<InputEventMouseMotion> mm;
+			mm.instantiate();
+			mm->set_position(last_mouse_position);
+			mm->set_global_position(last_mouse_position);
+			mm->set_relative(Vector2(p_ev.motion.xrel, p_ev.motion.yrel));
+			mm->set_relative_screen_position(mm->get_relative());
+			mm->set_velocity(Input::get_singleton()->get_last_mouse_velocity());
+			mm->set_screen_velocity(mm->get_velocity());
+			mm->set_button_mask(last_mouse_button_mask);
+			Input::get_singleton()->parse_input_event(mm);
+		} break;
+
+		case SDL_MOUSEBUTTONDOWN:
+		case SDL_MOUSEBUTTONUP: {
+			const bool pressed = (p_ev.type == SDL_MOUSEBUTTONDOWN);
+			// Mapped by name, not value — SDL has MIDDLE=2/RIGHT=3, godot the
+			// reverse.
+			MouseButton btn = MouseButton::NONE;
+			switch (p_ev.button.button) {
+				case SDL_BUTTON_LEFT:
+					btn = MouseButton::LEFT;
+					break;
+				case SDL_BUTTON_RIGHT:
+					btn = MouseButton::RIGHT;
+					break;
+				case SDL_BUTTON_MIDDLE:
+					btn = MouseButton::MIDDLE;
+					break;
+				case SDL_BUTTON_X1:
+					btn = MouseButton::MB_XBUTTON1;
+					break;
+				case SDL_BUTTON_X2:
+					btn = MouseButton::MB_XBUTTON2;
+					break;
+			}
+			if (btn == MouseButton::NONE) {
+				print_verbose(vformat(
+						"DisplayServerSDL2: dropped SDL mouse button %d (no godot mapping)",
+						(int)p_ev.button.button));
+				break;
+			}
+			if (pressed) {
+				last_mouse_button_mask.set_flag(mouse_button_to_mask(btn));
+			} else {
+				last_mouse_button_mask.clear_flag(mouse_button_to_mask(btn));
+			}
+			last_mouse_position = Point2i(p_ev.button.x, p_ev.button.y);
+			Ref<InputEventMouseButton> mb;
+			mb.instantiate();
+			mb->set_position(last_mouse_position);
+			mb->set_global_position(last_mouse_position);
+			mb->set_button_index(btn);
+			mb->set_pressed(pressed);
+			mb->set_button_mask(last_mouse_button_mask);
+			if (pressed && p_ev.button.clicks > 1) {
+				mb->set_double_click(true);
+			}
+			print_verbose(vformat(
+					"DisplayServerSDL2: SDL_MOUSEBUTTON%s btn=%d pos=(%d,%d)",
+					pressed ? "DOWN" : "UP", (int)btn,
+					last_mouse_position.x, last_mouse_position.y));
+			Input::get_singleton()->parse_input_event(mb);
+		} break;
+
+		// One godot pressed+released pair per wheel event. Integer .x/.y
+		// only — the build container's SDL2 (2.0.10, ubuntu:20.04) predates
+		// preciseX/preciseY.
+		case SDL_MOUSEWHEEL: {
+			MouseButton btn = MouseButton::NONE;
+			float factor = 0.0f;
+			if (p_ev.wheel.y != 0) {
+				btn = p_ev.wheel.y > 0 ? MouseButton::WHEEL_UP : MouseButton::WHEEL_DOWN;
+				factor = Math::abs((float)p_ev.wheel.y);
+			} else if (p_ev.wheel.x != 0) {
+				btn = p_ev.wheel.x > 0 ? MouseButton::WHEEL_RIGHT : MouseButton::WHEEL_LEFT;
+				factor = Math::abs((float)p_ev.wheel.x);
+			}
+			if (btn == MouseButton::NONE) {
+				break;
+			}
+			Ref<InputEventMouseButton> mb;
+			mb.instantiate();
+			mb->set_position(last_mouse_position);
+			mb->set_global_position(last_mouse_position);
+			mb->set_button_index(btn);
+			mb->set_factor(factor);
+			mb->set_button_mask(last_mouse_button_mask);
+			mb->set_pressed(true);
+			Input::get_singleton()->parse_input_event(mb);
+			Ref<InputEventMouseButton> mb_up;
+			mb_up.instantiate();
+			mb_up->set_position(last_mouse_position);
+			mb_up->set_global_position(last_mouse_position);
+			mb_up->set_button_index(btn);
+			mb_up->set_factor(factor);
+			mb_up->set_button_mask(last_mouse_button_mask);
+			mb_up->set_pressed(false);
+			Input::get_singleton()->parse_input_event(mb_up);
+		} break;
+
+		// TODO future work: SDL_TEXTINPUT.
 		default:
 			break;
 	}

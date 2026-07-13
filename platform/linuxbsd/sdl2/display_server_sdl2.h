@@ -115,6 +115,14 @@ class DisplayServerSDL2 : public DisplayServer {
 	// the hardcoded HAT0X/Y → DPAD_* mapping.
 	InputRemap input_remap;
 
+	// Mouse state, fed by the SDL_MOUSE* cases in _process_sdl_event(). Only
+	// the SDL-delegated (compositor) mode ever delivers mouse events — the
+	// compositor hands us surface-local, already-rotated coordinates. The
+	// evdev fast path ignores EV_REL/BTN_MOUSE entirely, so unlike keyboard
+	// there is no SDL-vs-evdev double-delivery to guard against.
+	Point2i last_mouse_position;
+	BitField<MouseButtonMask> last_mouse_button_mask;
+
 	void _scan_evdev();
 	void _close_evdev();
 	void _process_evdev();
@@ -134,6 +142,7 @@ public:
 	// ===== Methods we actually implement(不走 stub)=====
 	virtual bool has_feature(Feature p_feature) const override;
 	virtual String get_name() const override;
+	virtual Point2i mouse_get_position() const override;
 	virtual int get_screen_count() const override;
 	virtual int get_primary_screen() const override;
 	virtual Vector<WindowID> get_window_list() const override;
