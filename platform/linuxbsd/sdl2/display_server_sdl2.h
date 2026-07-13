@@ -28,7 +28,7 @@ class KMSGBMDevice;
 class KMSEGLContext;
 
 class DisplayServerSDL2 : public DisplayServer {
-	GDSOFTCLASS(DisplayServerSDL2, DisplayServer);
+	GDCLASS(DisplayServerSDL2, DisplayServer);
 
 	// SDL2 仅用于 events / joystick 输入(VIDEODRIVER=dummy,SDL2 不碰显示)。
 	SDL_Window *window = nullptr;
