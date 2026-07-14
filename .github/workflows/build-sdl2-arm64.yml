@@ -117,6 +117,7 @@ jobs:
             sdl=no \
             x11=$X11_FLAG \
             wayland=yes \
+            vulkan=no \
             target=template_release \
             module_mono_enabled=$MONO_FLAG \
             module_bmp_enabled=no \
