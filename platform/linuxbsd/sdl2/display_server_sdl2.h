@@ -123,6 +123,12 @@ class DisplayServerSDL2 : public DisplayServer {
 	Point2i last_mouse_position;
 	BitField<MouseButtonMask> last_mouse_button_mask;
 
+	// Shift state across evdev EV_KEY events, so letter keys can carry an
+	// uppercase unicode. gptokeyb's interactive textinput emits SHIFT for
+	// capitals; without unicode on the InputEventKey, godot LineEdit/TextEdit
+	// receive keycodes but never insert characters.
+	bool evdev_shift_down = false;
+
 	void _scan_evdev();
 	void _close_evdev();
 	void _process_evdev();

@@ -1055,6 +1055,8 @@ static Key _evdev_keycode_to_godot(uint16_t code) {
 		case KEY_BACKSPACE: return Key::BACKSPACE;
 		case KEY_TAB:       return Key::TAB;
 		case KEY_SPACE:     return Key::SPACE;
+		case KEY_MINUS:     return Key::MINUS;
+		case KEY_DOT:       return Key::PERIOD;
 
 		// Arrow keys (gptokeyb's D-pad mapping).
 		case KEY_UP:    return Key::UP;
@@ -1093,6 +1095,29 @@ static Key _evdev_keycode_to_godot(uint16_t code) {
 			print_verbose(vformat("DisplayServerSDL2/evdev: dropped EV_KEY code=%d (no godot mapping)", (int)code));
 			return Key::NONE;
 	}
+}
+
+// ASCII unicode for a godot Key — enough for gptokeyb's synthesized
+// keyboard (letters, digits, space); these handhelds have no real
+// keyboard/IME. Returns 0 for non-printable keys (godot ignores unicode 0).
+static char32_t _godot_key_to_unicode(Key p_key, bool p_shift) {
+	const int kc = (int)p_key;
+	if (kc >= (int)Key::A && kc <= (int)Key::Z) {
+		return (char32_t)(p_shift ? kc : kc + 32); // Key::A == 0x41 == 'A'
+	}
+	if (kc >= (int)Key::KEY_0 && kc <= (int)Key::KEY_9) {
+		return (char32_t)kc; // Key::KEY_0 == 0x30 == '0'
+	}
+	if (p_key == Key::SPACE) {
+		return U' ';
+	}
+	if (p_key == Key::MINUS) {
+		return p_shift ? U'_' : U'-';
+	}
+	if (p_key == Key::PERIOD) {
+		return U'.';
+	}
+	return 0;
 }
 
 // Map a kernel BTN_* gamepad code to godot JoyButton through the
@@ -1251,12 +1276,21 @@ void DisplayServerSDL2::_process_evdev() {
 					// Keyboard key.
 					Key k = _evdev_keycode_to_godot(ev.code);
 					if (k != Key::NONE) {
+						if (k == Key::SHIFT) {
+							evdev_shift_down = (ev.value != 0);
+						}
 						Ref<InputEventKey> ke;
 						ke.instantiate();
 						ke->set_pressed(ev.value != 0);
 						ke->set_echo(ev.value == 2);
 						ke->set_keycode(k);
 						ke->set_physical_keycode(k);
+						ke->set_key_label(k);
+						ke->set_shift_pressed(evdev_shift_down);
+						const char32_t uc = _godot_key_to_unicode(k, evdev_shift_down);
+						if (uc != 0) {
+							ke->set_unicode(uc);
+						}
 						Input::get_singleton()->parse_input_event(ke);
 						print_verbose(vformat(
 								"DisplayServerSDL2/evdev: dispatched Key keycode=%d pressed=%d",
